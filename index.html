@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PPWR PMAT Calculator</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;font-size:13px;margin:12px;max-width:100%}
+h1{font-size:18px;margin:0 0 4px}
+h3{font-size:14px;margin:12px 0 4px}
+fieldset{margin:0 0 12px;padding:8px}
+legend{font-weight:bold}
+table{border-collapse:collapse;margin:4px 0}
+th,td{border:1px solid #999;padding:2px 5px;text-align:right;white-space:nowrap}
+th{background:#eee;text-align:center}
+td.t,th.t{text-align:left}
+textarea{width:100%;font-family:monospace;font-size:12px}
+.num{font-variant-numeric:tabular-nums}
+.err{color:#a00}
+.warn{color:#a60}
+.ok{color:#060}
+.ovr{background:#eee}
+.wrap{overflow-x:auto;max-height:520px;overflow-y:auto}
+.small{font-size:12px;color:#555}
+button{padding:4px 10px;margin-right:4px}
+tfoot td,tfoot th{font-weight:bold;background:#f4f4f4}
+</style>
+</head>
+<body>
+
+<h1>PPWR Product-Level PMAT Calculator</h1>
+<p class="small">Offline tool. No network calls, no external libraries. Reference data (archetype distributions, brand waste channels) is embedded below in <b>Reference data</b>.</p>
+
+<fieldset>
+<legend>1. Market</legend>
+<label>Country:
+<select id="country"></select>
+</label>
+<span id="countryInfo" class="small"></span>
+</fieldset>
+
+<fieldset>
+<legend>2. Input</legend>
+<p class="small">
+Load an <b>.xlsx</b> workbook, a CSV/TSV file, or paste rows straight from Excel (tab-separated).<br>
+Needed columns: <b>Item No.</b> | <b>Archetype</b> | <b>Brand</b> | <b>Pkg Weight (kg)</b> | <b>Qty</b> | <b>Waste Channel</b> (optional).<br>
+The header row is located automatically even when metadata rows sit above it, and columns are matched
+by name — including the Dataverse names (<code>cr69f_archetype</code>, <code>cr69f_packagingweightkg</code>,
+<code>Invoiced Quantity</code>). Check and correct the mapping below before trusting the numbers.
+</p>
+<p>
+<input type="file" id="file" accept=".xlsx,.csv,.tsv,.txt">
+<button id="demoBtn" type="button">Load example rows</button>
+<button id="clearBtn" type="button">Clear</button>
+</p>
+<textarea id="paste" rows="8" spellcheck="false" placeholder="EB-BG390BBEGWW&#9;A7&#9;Samsung&#9;0.2&#9;1"></textarea>
+<p>
+<label><input type="checkbox" id="hasHeader" checked> First row is a header</label> &nbsp;
+<label><input type="checkbox" id="useBrandWC" checked> Resolve Waste Channel from brand table (ignore input column)</label>
+</p>
+<div id="colMap" class="small"></div>
+<div id="loadInfo" class="small"></div>
+<p><button id="calcBtn" type="button"><b>Calculate</b></button></p>
+</fieldset>
+
+<fieldset>
+<legend>3. Validation</legend>
+<div id="issues" class="small">Not run yet.</div>
+</fieldset>
+
+<fieldset>
+<legend>4. Summary — parent category totals (kg)</legend>
+<div id="summary"></div>
+<p><button id="expSummary" type="button">Export summary CSV</button></p>
+</fieldset>
+
+<fieldset>
+<legend>5. PMAT code totals (kg)</legend>
+<div class="wrap"><div id="pmatTotals"></div></div>
+<p><button id="expPmat" type="button">Export PMAT totals CSV</button></p>
+</fieldset>
+
+<fieldset>
+<legend>6. Archetype breakdown</legend>
+<div class="wrap"><div id="archBreak"></div></div>
+</fieldset>
+
+<fieldset>
+<legend>7. Item detail</legend>
+<p class="small">
+<label>Rows shown: <input type="number" id="rowCap" value="200" min="10" step="50" style="width:70px"></label> &nbsp;
+<label><input type="checkbox" id="hideZero" checked> Hide PMAT columns that are zero for every row</label> &nbsp;
+<button id="redrawDetail" type="button">Redraw</button>
+<button id="expDetail" type="button">Export full detail CSV</button>
+</p>
+<div class="wrap"><div id="detail"></div></div>
+</fieldset>
+
+<fieldset id="expBox" style="display:none">
+<legend id="expLegend">8. Scheme upload file</legend>
+<div id="expNote" class="small"></div>
+<p>
+<label>Year <input type="number" id="expYear" value="2026" style="width:70px"></label> &nbsp;
+<label>Period
+<select id="expPeriod"><option>Q1</option><option>Q2</option><option selected>Q3</option><option>Q4</option><option>Year</option></select>
+</label> &nbsp;
+<label>Reference <input type="text" id="expRef" style="width:150px" placeholder="optional"></label> &nbsp;
+<label>Include waste channels
+<select id="expScope">
+<option value="all">All</option>
+<option value="2">Household only (WC=2)</option>
+<option value="1">Commercial only (WC=1)</option>
+</select></label>
+</p>
+<p class="small">
+<label>Line format
+<select id="expLine">
+<option value="code">code + weight</option>
+<option value="label">label + weight</option>
+<option value="both">code + weight + label</option>
+<option value="value">weight only</option>
+</select></label> &nbsp;
+<label>Field separator
+<select id="expDelim">
+<option value=";" selected>semicolon</option>
+<option value="&#9;">tab</option>
+<option value=",">comma</option>
+<option value="|">pipe</option>
+</select></label> &nbsp;
+<label>Decimal
+<select id="expDec"><option value="," selected>comma</option><option value=".">point</option></select></label> &nbsp;
+<label>Decimals <input type="number" id="expDp" value="3" min="0" max="6" style="width:55px"></label> &nbsp;
+<label><input type="checkbox" id="expZero"> Include categories with zero weight</label> &nbsp;
+<label><input type="checkbox" id="expHead"> Write a header line</label>
+</p>
+<div id="expTable"></div>
+<p><b>File preview</b></p>
+<textarea id="expPreview" rows="10" spellcheck="false" readonly></textarea>
+<p><button id="expDownloadBtn" type="button"><b>Download .txt</b></button>
+<button id="expRefresh" type="button">Refresh preview</button></p>
+</fieldset>
+
+<fieldset>
+<legend>Reference data</legend>
+<p><label>Filter: <input type="text" id="refFilter" placeholder="archetype, PMAT code or brand"></label></p>
+<h3>Archetype distributions (fraction of packaging weight)</h3>
+<div class="wrap"><div id="refArch"></div></div>
+<h3>Brand → waste channel</h3>
+<div class="wrap"><div id="refBrand"></div></div>
+<h3>Brand-specific PMAT overrides</h3>
+<div id="refRules"></div>
+</fieldset>
+
+<script>
+/* ------------------------------------------------------------------
+   COUNTRY CONFIGURATION
+   To add a market, add an entry to COUNTRIES. Everything country
+   specific lives inside its object: PMAT list, archetype fractions,
+   brand -> waste channel map, default waste channel, brand overrides.
+------------------------------------------------------------------ */
+var DK = {"pmats":[{"code":"PMAT_PAP_20","parent":"G_Cardboard","desc":"Corrugated cardboard"},{"code":"PMAT_PAP_21","parent":"G_Cardboard","desc":"Non-corrugated cardboard"},{"code":"PMAT_PAP_22","parent":"G_Paper","desc":"Paper"},{"code":"PMAT_HDPE_2_HARD_1","parent":"G_HardPlastic","desc":"HDPE hard (green)"},{"code":"PMAT_PET_1_HARD_1","parent":"G_HardPlastic","desc":"PET hard (green)"},{"code":"PMAT_PP_5_HARD_1","parent":"G_HardPlastic","desc":"PP hard (green)"},{"code":"PMAT_PVC_3_HARD_1","parent":"G_HardPlastic","desc":"PVC hard (green)"},{"code":"PMAT_HDPE_2_HARD_2","parent":"Y_HardPlastic","desc":"HDPE hard (yellow)"},{"code":"PMAT_PET_1_HARD_2","parent":"Y_HardPlastic","desc":"PET hard (yellow)"},{"code":"PMAT_PP_5_HARD_2","parent":"Y_HardPlastic","desc":"PP hard (yellow)"},{"code":"PMAT_HDPE_2_HARD_3","parent":"R_HardPlastic","desc":"HDPE hard (red)"},{"code":"PMAT_PET_1_HARD_3","parent":"R_HardPlastic","desc":"PET hard (red)"},{"code":"PMAT_PP_5_HARD_3","parent":"R_HardPlastic","desc":"PP hard (red)"},{"code":"PMAT_PVC_3_HARD_3","parent":"R_HardPlastic","desc":"PVC hard (red)"},{"code":"PMAT_LDPE_4_SOFT_1","parent":"G_FlexPlastic","desc":"LDPE soft (green)"},{"code":"PMAT_PVC_3_SOFT_1","parent":"G_FlexPlastic","desc":"PVC soft (green)"},{"code":"PMAT_LDPE_4_SOFT_2","parent":"Y_FlexPlastic","desc":"LDPE soft (yellow)"},{"code":"PMAT_PVC_3_SOFT_2","parent":"Y_FlexPlastic","desc":"PVC soft (yellow)"},{"code":"PMAT_LDPE_4_SOFT_3","parent":"R_FlexPlastic","desc":"LDPE soft (red)"},{"code":"PMAT_PVC_3_SOFT_3","parent":"R_FlexPlastic","desc":"PVC soft (red)"},{"code":"PMAT_OTHER_7_FOAM","parent":"Y_Foam","desc":"Other foam (yellow)"},{"code":"PMAT_PS_6_FOAM","parent":"R_Foam","desc":"PS foam (red)"},{"code":"PMAT_WOOD","parent":"G_Wood","desc":"Wood"},{"code":"PMAT_C_PAP_80","parent":"C_PAP","desc":"Composite paper/board"},{"code":"PMAT_C_LDPE_90","parent":"R_FlexPlastic","desc":"Composite LDPE"}],"archetypes":{"A1A":{"PMAT_PAP_20":0.0,"PMAT_PAP_21":0.0,"PMAT_PAP_22":1.0,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.0,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A1B":{"PMAT_PAP_20":0.0,"PMAT_PAP_21":0.95,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.0,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A1C":{"PMAT_PAP_20":0.0,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.0,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.95,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A1D":{"PMAT_PAP_20":0.42,"PMAT_PAP_21":0.45,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.08,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A2":{"PMAT_PAP_20":0.5,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.09,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.41,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.0,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A3":{"PMAT_PAP_20":0.9,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.05,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A4":{"PMAT_PAP_20":0.6,"PMAT_PAP_21":0.27,"PMAT_PAP_22":0.08,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.05,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A5":{"PMAT_PAP_20":0.7,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.1,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.15,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A6":{"PMAT_PAP_20":0.7,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.1,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.0,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.1,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.1},"A7":{"PMAT_PAP_20":0.5,"PMAT_PAP_21":0.35,"PMAT_PAP_22":0.1,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.05,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A8":{"PMAT_PAP_20":0.75,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.05,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.15,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A9":{"PMAT_PAP_20":0.75,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.05,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.15,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A10":{"PMAT_PAP_20":0.8,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.05,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.1,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A11":{"PMAT_PAP_20":0.75,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.1,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.05,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.1,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A12":{"PMAT_PAP_20":0.6,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.05,"PMAT_HDPE_2_HARD_1":0.35,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.0,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":0.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0},"A13":{"PMAT_PAP_20":0.0,"PMAT_PAP_21":0.0,"PMAT_PAP_22":0.0,"PMAT_HDPE_2_HARD_1":0.0,"PMAT_PET_1_HARD_1":0.0,"PMAT_PP_5_HARD_1":0.0,"PMAT_PVC_3_HARD_1":0.0,"PMAT_HDPE_2_HARD_2":0.0,"PMAT_PET_1_HARD_2":0.0,"PMAT_PP_5_HARD_2":0.0,"PMAT_HDPE_2_HARD_3":0.0,"PMAT_PET_1_HARD_3":0.0,"PMAT_PP_5_HARD_3":0.0,"PMAT_PVC_3_HARD_3":0.0,"PMAT_LDPE_4_SOFT_1":0.0,"PMAT_PVC_3_SOFT_1":0.0,"PMAT_LDPE_4_SOFT_2":0.0,"PMAT_PVC_3_SOFT_2":0.0,"PMAT_LDPE_4_SOFT_3":0.0,"PMAT_PVC_3_SOFT_3":0.0,"PMAT_OTHER_7_FOAM":0.0,"PMAT_PS_6_FOAM":0.0,"PMAT_WOOD":1.0,"PMAT_C_PAP_80":0.0,"PMAT_C_LDPE_90":0.0}},"brands":{"2N":"1","3Dconnexion":"2","3M":"2","aCable":"1","Acer":"1","ACS":"1","Adaptec":"1","ADATA":"2","Adder":"1","Advantech":"1","AgfaPhoto":"2","Airserver":"1","AIRTAME":"1","Akasa":"2","Alcatel":"1","Allied Telesis":"1","ALLNET":"1","Alogic":"2","Amazon":"2","American Tourister":"2","AmpliFi":"2","Anker":"2","ANSMANN":"2","Antec":"1","AOC":"2","APC":"1","APG Cash Drawer":"1","Apple":"2","Apricorn":"2","Aqara":"2","Arctic":"2","Aritech":"1","Arlo":"2","ARMOR":"1","Asus":"1","Aten":"1","Atlona":"1","Avago":"1","AVer":"1","Avigilon":"1","Axis":"1","B-Tech":"1","Bachmann":"1","Bang & Olufsen":"2","Barco":"1","Barox":"1","be quiet!":"2","Belkin":"2","BenQ":"2","Beyerdynamic":"2","Biostar":"1","BiTsound":"2","Bixolon":"1","Black Box":"1","Bosch":"1","Bose":"2","Brady":"1","Brennenstuhl":"1","Broadcom":"1","Brocade":"1","Brodit":"2","Brother":"2","Cabletime":"1","CalDigit":"2","Cambium Networks":"1","Canon":"2","Canyon":"2","Capture":"1","Case Logic":"2","Casio":"2","Celly":"2","Charge Amps":"2","Cherry":"2","CipherLab":"1","Cisco":"1","Citizen":"1","Club3D":"2","Compulocks":"1","Conceptronic":"1","Contour":"1","CoreParts":"1","Corsair":"2","Creative Labs":"2","CRU":"2","Crucial":"2","CyberPower":"2","D-Link":"2","Danfoss":"2","Datalogic":"1","dbramante1928":"2","DEFA":"2","deleyCON":"1","Dell":"1","Delock":"2","Deltaco":"1","Dewalt":"2","Dicota":"2","Digi":"1","Digitus":"2","DJI":"2","DMT":"1","Draytek":"2","Durable":"2","Duracell":"2","DYMO":"2","E-Line":"2","Eaton":"1","EcoFlow":"1","Ecovacs":"2","EDBAK":"1","Edimax":"2","Ednet":"1","Ekahau":"1","Elgato":"2","Elo Touch Solutions":"1","EMC":"1","Energizer":"2","Enermax":"2","EPOS":"2","Epson":"2","Equip":"1","Ergonomic Solutions":"1","Ergotron":"1","Ernitec":"1","Esselte":"2","eSTUFF":"2","Evoko":"2","Evolis":"1","Evoluent":"1","Fellowes":"2","Fitbit":"2","Flashforge":"2","Flexson":"1","Flic":"2","Fluke":"2","Forming Function":"2","Fujifilm":"2","Fujitsu":"2","FULL":"2","Garbot":"2","Garmin":"2","Gemalto":"1","Gembird":"2","Gigabyte":"2","Gigaset":"2","go-e":"2","Goobay":"2","Google":"2","GoPro":"2","GP":"2","Grandstream":"1","Grandview":"1","Hama":"2","HANNspree":"1","Hanwha":"1","harman/kardon":"2","Heckler Design":"2","Hewlett Packard Enterprise":"1","Hikvision":"1","Hombli":"2","Honeywell":"1","HP":"1","HTC":"2","Huawei":"2","HUAWEI eKit":"2","Huddly":"2","Hynix":"2","Hyper":"2","i-tec":"1","I.R.I.S.":"1","IBM":"1","ICD":"1","ICY BOX":"2","Identiv":"1","Idis":"1","iFixit":"2","iiyama":"1","Infocus":"1","Infosec":"1","InLine":"2","INNR Lighting":"2","Insta360":"1","Intel":"1","Intellinet":"1","Intenso":"1","Inter-Tech":"1","IOGEAR":"2","j5create":"1","Jabra":"2","Jackery":"2","JBL":"2","JLab":"2","Jobmate":"2","Joby":"2","JVC":"2","Kapsolo":"2","Katun":"2","Kensington":"2","Kingston":"2","Kodak":"2","Konica":"2","Konica Minolta":"2","KOSS":"2","Kuando":"1","Kyocera":"1","K\u00f6nig & Meyer":"2","LACIE":"1","Lancom Systems":"1","Lanview":"1","LC-POWER":"2","Leba":"1","Leitz":"1","Lenco":"2","Lenovo":"1","LevelOne":"1","Lexar":"1","Lexmark":"1","LG":"2","Lindy":"2","LMP":"2","LogiLink":"2","Logitech":"2","LOGON":"1","LOGON PREMIUM":"1","LOGON PROFESSIONAL":"1","Loop24":"1","Lumens":"1","MagTek":"2","Manhattan":"2","Matting":"1","Maximum":"2","Mean Well":"1","MediaRange":"1","MeLe":"1","Mercodan":"2","MicroConnect":"1","Micron":"1","Microsoft":"2","MikroTik":"1","Milestone":"1","Mionix":"2","Mitel":"1","Mobile Pixels":"2","Mobilis":"1","Motorola":"2","Mousetrapper":"2","Moxa":"1","MSI":"2","Mushkin":"2","Nanoleaf":"2","Native Union":"2","Neat":"1","Nedis":"1","Neomounts":"1","Neovo":"2","NetApp":"1","Netatmo":"2","Netgear":"1","Newland":"1","Next Green":"1","Nintendo":"2","Noctua":"1","Nokia":"2","Noname":"1","Nura":"2","NVIDIA":"2","NZXT":"2","OEM":"1","OKI":"1","Olympus":"2","Omada":"1","Omajin":"2","Omnikey":"1","One For All":"2","OnePlus":"1","Optex":"1","Opticon":"1","Optoma":"1","Otterbox":"1","OWC":"2","P.I. Engineering":"2","Panasonic":"2","Panorama Antennas":"1","Parani":"1","PATCHBOX":"1","Patriot Memory":"2","Peerless":"1","Pelco":"1","Pelikan":"1","Philips":"1","Planet":"1","PNY":"1","Poindus":"1","Poly":"2","PowerWalker":"1","Printronix":"1","Promag":"1","Promethean":"1","ProXtend":"2","PureLink":"1","PureTools":"1","QNAP":"1","Quantum":"1","QuWireless":"1","R-Go Tools":"1","Rackmount IT":"1","Rad":"1","Rain Design":"2","RAM Mounts":"1","Raritan":"1","Raspberry Pi":"1","Raytec":"1","Razer":"2","Retex":"1","Ricoh":"1","Roccat":"2","Roline":"1","R\u00d8DE":"2","Samsonite":"2","Samsung":"2","Sandberg":"2","Sandisk":"2","Satechi":"2","Schneider":"1","ScreenBeam":"1","Seagate":"1","Sennheiser":"2","Sharp":"2","Sharp/NEC":"1","Shure":"2","Shuttle":"1","signotec":"1","Silicon Power":"2","SKROSS":"2","Skullcandy":"2","SMART Technologies":"1","SmartKeeper":"1","Smartsign":"1","SMS":"1","Sonero":"1","Sonnet":"1","Sonos":"2","Sony":"2","Speck":"1","Spigen":"2","Star Micronics":"1","Starlink":"1","StarTech.com":"1","SteelSeries":"2","Strong":"2","Studio Proper":"1","SumUp":"1","SurgeX":"1","Synology":"2","Tado":"2","Tamron":"2","Targus":"2","Techly":"2","Technics":"2","Technisat":"2","Teltonika Networks":"1","Tesa":"1","Texas Instruments":"2","TFA":"2","ThermalTake":"1","Topaz":"2","Toshiba":"1","TP-Link":"2","Transcend":"2","TRENDnet":"1","Triton":"1","Trunk":"2","Trust":"2","TSC":"1","Ubiquiti":"1","Umates":"2","Urban Armor Gear":"2","Urbanista":"2","Urovo":"1","V7":"2","Value":"2","Vanguard":"2","Varta":"2","Veho":"2","Velbon":"2","Ventev":"1","Veracity":"1","Verbatim":"2","Vertiv":"1","ViewSonic":"1","Vision":"2","Vivolink":"1","Vivotek":"1","VOCOlinc":"2","Vogel's":"2","Wacom":"2","We Are Rewind":"2","Wenger":"2","Western Digital":"1","Whoosh!":"2","Wi-Tek":"1","Winmate":"2","WOOX":"2","Xerox":"1","Xiaomi":"2","XPPen":"2","Xtorm":"1","Yealink":"1","Yeelight":"2","Yubico":"1","Zaptec":"2","Zebra":"1","Zenitel":"1","ZPE Systems":"1","ZTE":"1","Zyxel":"1"}};
+
+var COUNTRIES = {
+  DK: {
+    name: "Denmark",
+    note: "Waste channel: 1 = Commercial, 2 = Household. Brands absent from the brand table default to 1 (Commercial).",
+    wasteChannels: [
+      {code: "1", label: "Commercial"},
+      {code: "2", label: "Household"}
+    ],
+    defaultWasteChannel: "1",
+    pmats: DK.pmats,
+    archetypes: DK.archetypes,
+    brands: DK.brands,
+    // Move the weight assigned to `from` over to `to` when archetype+brand match.
+    brandRules: [
+      {archetype: "A1C", brand: "MicroConnect", from: "PMAT_PAP_22", to: "PMAT_C_PAP_80",
+       note: "MicroConnect A1C paper share is reported as composite paper/board"}
+    ]
+  }
+};
+
+/* ---- Austria (ARA) ----------------------------------------------
+   Tariff categories and rates: ARA "List of tariff rates 2026",
+   version 29 Sep 2025. Rates are shown for cross-checking the
+   portal's calculated subtotal only; ARA calculates the fee itself.
+------------------------------------------------------------------ */
+var ARA_CATEGORIES = [
+  {code:"1.01.0", label:"Paper, household",                        wc:"2", rate:0.208},
+  {code:"1.02.0", label:"Glass, household",                        wc:"2", rate:0.108},
+  {code:"1.03.1", label:"Ferrous metal, household",                wc:"2", rate:0.450},
+  {code:"1.03.2", label:"Aluminium, household",                    wc:"2", rate:0.480},
+  {code:"1.04.1", label:"Plastic, household",                      wc:"2", rate:1.040},
+  {code:"1.04.2", label:"Beverage cartons, household",             wc:"2", rate:1.020},
+  {code:"1.04.3", label:"Other composite materials, household",    wc:"2", rate:1.140},
+  {code:"1.04.4", label:"Ceramics, household",                     wc:"2", rate:0.140},
+  {code:"1.04.5", label:"Wood, household",                         wc:"2", rate:0.020},
+  {code:"1.04.6", label:"Textile fibres, household",               wc:"2", rate:0.200},
+  {code:"1.04.7", label:"Biodegradable materials, household",      wc:"2", rate:0.550},
+  {code:"2.01.0", label:"Paper, commercial",                       wc:"1", rate:0.070},
+  {code:"2.03.1", label:"Ferrous metal, commercial",               wc:"1", rate:0.070},
+  {code:"2.03.2", label:"Aluminium, commercial",                   wc:"1", rate:0.090},
+  {code:"2.04.1", label:"Foils, commercial",                       wc:"1", rate:0.180},
+  {code:"2.04.2", label:"Moulded containers, commercial",          wc:"1", rate:0.100},
+  {code:"2.05.0", label:"EPS, commercial",                         wc:"1", rate:0.350},
+  {code:"2.07.0", label:"Other composite materials, commercial",   wc:"1", rate:0.100},
+  {code:"2.08.0", label:"Ceramics, commercial",                    wc:"1", rate:0.100},
+  {code:"2.09.0", label:"Wood, commercial",                        wc:"1", rate:0.020},
+  {code:"2.10.0", label:"Textile fibres, commercial",              wc:"1", rate:0.100},
+  {code:"2.11.0", label:"Biodegradable materials, commercial",     wc:"1", rate:0.100}
+];
+
+// PMAT code -> ARA tariff category, keyed by waste channel ("2" household, "1" commercial).
+var ARA_MAP = {
+  PMAT_PAP_20:        {"2":"1.01.0", "1":"2.01.0"},
+  PMAT_PAP_21:        {"2":"1.01.0", "1":"2.01.0"},
+  PMAT_PAP_22:        {"2":"1.01.0", "1":"2.01.0"},
+  PMAT_HDPE_2_HARD_1: {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PET_1_HARD_1:  {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PP_5_HARD_1:   {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PVC_3_HARD_1:  {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_HDPE_2_HARD_2: {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PET_1_HARD_2:  {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PP_5_HARD_2:   {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_HDPE_2_HARD_3: {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PET_1_HARD_3:  {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PP_5_HARD_3:   {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_PVC_3_HARD_3:  {"2":"1.04.1", "1":"2.04.2"},
+  PMAT_LDPE_4_SOFT_1: {"2":"1.04.1", "1":"2.04.1"},
+  PMAT_PVC_3_SOFT_1:  {"2":"1.04.1", "1":"2.04.1"},
+  PMAT_LDPE_4_SOFT_2: {"2":"1.04.1", "1":"2.04.1"},
+  PMAT_PVC_3_SOFT_2:  {"2":"1.04.1", "1":"2.04.1"},
+  PMAT_LDPE_4_SOFT_3: {"2":"1.04.1", "1":"2.04.1"},
+  PMAT_PVC_3_SOFT_3:  {"2":"1.04.1", "1":"2.04.1"},
+  PMAT_OTHER_7_FOAM:  {"2":"1.04.1", "1":"2.04.1"},
+  PMAT_PS_6_FOAM:     {"2":"1.04.1", "1":"2.05.0"},
+  PMAT_WOOD:          {"2":"1.04.5", "1":"2.09.0"},
+  PMAT_C_PAP_80:      {"2":"1.04.3", "1":"2.07.0"},
+  PMAT_C_LDPE_90:     {"2":"1.04.3", "1":"2.07.0"}
+};
+
+COUNTRIES.AT = {
+  name: "Austria",
+  note: "Reports to ARA. Waste channel 2 = household (1.x.x tariff categories), 1 = commercial (2.x.x). Brands absent from the brand table default to 1 (commercial).",
+  wasteChannels: [
+    {code: "1", label: "Commercial"},
+    {code: "2", label: "Household"}
+  ],
+  defaultWasteChannel: "1",
+  pmats: DK.pmats,
+  archetypes: DK.archetypes,
+  brands: DK.brands,
+  brandRules: [
+    {archetype: "A1C", brand: "MicroConnect", from: "PMAT_PAP_22", to: "PMAT_C_PAP_80",
+     note: "MicroConnect A1C paper share is reported as composite paper/board"}
+  ],
+  exportProfile: {
+    system: "ARA",
+    fileTag: "ARA",
+    categories: ARA_CATEGORIES,
+    map: ARA_MAP,
+    scope: "all",
+    lineFormat: "code",
+    decimals: 3,
+    rateYear: 2026,
+    note: "Weights are aggregated to the 22 ARA tariff categories for the Import field on the ARA " +
+          "data-report screen. Household weight goes to 1.x.x categories, commercial to 2.x.x, so " +
+          "both channels belong in the file. Check the layout against the \u24D8 tooltip in the portal " +
+          "before the first upload and adjust the settings below to match."
+  }
+};
+
+/* ---- Germany (Der Grüne Punkt) -----------------------------------
+   Material categories as they appear on the DGP reporting form,
+   in the same order, entered as whole kg.
+------------------------------------------------------------------ */
+var DGP_CATEGORIES = [
+  {code:"GLASS",     label:"Glass"},
+  {code:"PPK",       label:"Paper/paperboard/cardboard"},
+  {code:"FE",        label:"Ferrous metals"},
+  {code:"ALU",       label:"Aluminium"},
+  {code:"PLASTICS",  label:"Plastics"},
+  {code:"LPB",       label:"Liquid packaging board (up to 12/26 beverage carton packaging)"},
+  {code:"COMPOSITE", label:"Other composite packaging"},
+  {code:"OTHER",     label:"Other materials"}
+];
+
+// The German form has no household/commercial split, so both channels
+// point at the same category and the scope selector decides what is included.
+function dgpBoth(code){ return {"1": code, "2": code}; }
+var DGP_MAP = {
+  PMAT_PAP_20:        dgpBoth("PPK"),
+  PMAT_PAP_21:        dgpBoth("PPK"),
+  PMAT_PAP_22:        dgpBoth("PPK"),
+  PMAT_HDPE_2_HARD_1: dgpBoth("PLASTICS"),
+  PMAT_PET_1_HARD_1:  dgpBoth("PLASTICS"),
+  PMAT_PP_5_HARD_1:   dgpBoth("PLASTICS"),
+  PMAT_PVC_3_HARD_1:  dgpBoth("PLASTICS"),
+  PMAT_HDPE_2_HARD_2: dgpBoth("PLASTICS"),
+  PMAT_PET_1_HARD_2:  dgpBoth("PLASTICS"),
+  PMAT_PP_5_HARD_2:   dgpBoth("PLASTICS"),
+  PMAT_HDPE_2_HARD_3: dgpBoth("PLASTICS"),
+  PMAT_PET_1_HARD_3:  dgpBoth("PLASTICS"),
+  PMAT_PP_5_HARD_3:   dgpBoth("PLASTICS"),
+  PMAT_PVC_3_HARD_3:  dgpBoth("PLASTICS"),
+  PMAT_LDPE_4_SOFT_1: dgpBoth("PLASTICS"),
+  PMAT_PVC_3_SOFT_1:  dgpBoth("PLASTICS"),
+  PMAT_LDPE_4_SOFT_2: dgpBoth("PLASTICS"),
+  PMAT_PVC_3_SOFT_2:  dgpBoth("PLASTICS"),
+  PMAT_LDPE_4_SOFT_3: dgpBoth("PLASTICS"),
+  PMAT_PVC_3_SOFT_3:  dgpBoth("PLASTICS"),
+  PMAT_OTHER_7_FOAM:  dgpBoth("PLASTICS"),
+  PMAT_PS_6_FOAM:     dgpBoth("PLASTICS"),
+  PMAT_WOOD:          dgpBoth("OTHER"),
+  PMAT_C_PAP_80:      dgpBoth("COMPOSITE"),
+  PMAT_C_LDPE_90:     dgpBoth("COMPOSITE")
+};
+
+COUNTRIES.DE = {
+  name: "Germany",
+  note: "Reports to Der Grüne Punkt. Brands absent from the brand table default to 1 (commercial).",
+  wasteChannels: [
+    {code: "1", label: "Commercial"},
+    {code: "2", label: "Household"}
+  ],
+  defaultWasteChannel: "1",
+  pmats: DK.pmats,
+  archetypes: DK.archetypes,
+  brands: DK.brands,
+  brandRules: [
+    {archetype: "A1C", brand: "MicroConnect", from: "PMAT_PAP_22", to: "PMAT_C_PAP_80",
+     note: "MicroConnect A1C paper share is reported as composite paper/board"}
+  ],
+  exportProfile: {
+    system: "Der Grüne Punkt",
+    fileTag: "DGP",
+    categories: DGP_CATEGORIES,
+    map: DGP_MAP,
+    scope: "2",
+    lineFormat: "label",
+    decimals: 0,
+    note: "Eight material categories in the order they appear on the Der Grüne Punkt form, " +
+          "rounded to whole kg. Only system-participation packaging (the household channel) " +
+          "belongs in a dual-system report, so the scope defaults to WC=2 — switch it above if " +
+          "EET Deutschland reports on a different basis."
+  }
+};
+
+var DEMO =
+"Item No.\tArchetype\tBrand\tPkg Weight (kg)\tQty\n" +
+"EB-BG390BBEGWW\tA7\tSamsung\t0.2\t1\n" +
+"W125073976\tA6\tCoreParts\t0.02\t1\n" +
+"PJ-CASE-008\tA11\tViewSonic\t0.44\t1\n" +
+"MC-CABLE-001\tA1C\tMicroConnect\t0.05\t10\n" +
+"PAL-1234\tA13\tHama\t3.5\t1\n";
+
+/* ------------------------------------------------------------------
+   STATE
+------------------------------------------------------------------ */
+var CFG = null;        // active country config
+var PMATS = [];        // ordered pmat definitions
+var PIDX = {};         // pmat code -> index
+var BRANDIDX = {};     // lowercase brand -> waste channel
+var RESULT = null;     // last calculation
+
+/* ------------------------------------------------------------------
+   HELPERS
+------------------------------------------------------------------ */
+function $(id){ return document.getElementById(id); }
+
+function esc(s){
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function fmt(n, dp){
+  if (n === null || n === undefined || isNaN(n)) return "";
+  return Number(n).toFixed(dp === undefined ? 4 : dp);
+}
+
+function parseNum(raw){
+  if (raw === null || raw === undefined) return NaN;
+  var s = String(raw).trim().replace(/\s|\u00a0/g, "");
+  if (s === "") return NaN;
+  var lastDot = s.lastIndexOf("."), lastCom = s.lastIndexOf(",");
+  if (lastDot > -1 && lastCom > -1){
+    if (lastCom > lastDot) s = s.replace(/\./g,"").replace(",", ".");
+    else s = s.replace(/,/g,"");
+  } else if (lastCom > -1){
+    // single comma: decimal separator if it is not a thousands group
+    if (/^\-?\d{1,3}(,\d{3})+$/.test(s)) s = s.replace(/,/g,"");
+    else s = s.replace(",", ".");
+  }
+  var v = parseFloat(s);
+  return isNaN(v) ? NaN : v;
+}
+
+function splitLine(line, delim){
+  var out = [], cur = "", q = false;
+  for (var i = 0; i < line.length; i++){
+    var c = line.charAt(i);
+    if (q){
+      if (c === '"'){
+        if (line.charAt(i+1) === '"'){ cur += '"'; i++; }
+        else q = false;
+      } else cur += c;
+    } else {
+      if (c === '"') q = true;
+      else if (c === delim){ out.push(cur); cur = ""; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function detectDelim(sample){
+  if (sample.indexOf("\t") > -1) return "\t";
+  if (sample.indexOf(";") > -1) return ";";
+  return ",";
+}
+
+function csvCell(v){
+  var s = String(v === null || v === undefined ? "" : v);
+  return /[";\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+
+function download(name, rows){
+  var txt = rows.map(function(r){ return r.map(csvCell).join(";"); }).join("\r\n");
+  var blob = new Blob(["\ufeff" + txt], {type: "text/csv;charset=utf-8;"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+}
+
+/* ------------------------------------------------------------------
+   COUNTRY SWITCHING
+------------------------------------------------------------------ */
+function loadCountry(code){
+  CFG = COUNTRIES[code];
+  PMATS = CFG.pmats;
+  PIDX = {};
+  for (var i = 0; i < PMATS.length; i++) PIDX[PMATS[i].code] = i;
+  BRANDIDX = {};
+  for (var b in CFG.brands){
+    if (CFG.brands.hasOwnProperty(b)) BRANDIDX[b.toLowerCase()] = CFG.brands[b];
+  }
+  $("countryInfo").textContent = " — " + CFG.note;
+  RESULT = null;
+  ["summary","pmatTotals","archBreak","detail","expTable"].forEach(function(id){ $(id).innerHTML = ""; });
+  $("expPreview").value = "";
+  $("issues").innerHTML = "Not run yet.";
+  applyExportDefaults();
+  renderExport();
+  renderReference();
+}
+
+/* ------------------------------------------------------------------
+   PARSING
+------------------------------------------------------------------ */
+var FIELDS = [
+  {key:"item",      label:"Item No.",        exact:["item no","item number","itemno","cr69f_itemno","sku","varenr"],                                   pre:["item no"]},
+  {key:"archetype", label:"Archetype",       exact:["archetype","cr69f_archetype","arketype"],                                                          pre:["archetype"]},
+  {key:"brand",     label:"Brand",           exact:["brand","brand name","brandname","cr69f_brandname","maerke"],                                       pre:["brand name"]},
+  {key:"weight",    label:"Pkg Weight (kg)", exact:["cr69f_packagingweightkg","pkg weight kg","packaging weight kg","pkg weight","packaging weight"],   pre:["pkg weight","packaging weight"]},
+  {key:"qty",       label:"Qty",             exact:["qty","quantity","invoiced quantity","antal","stk"],                                                pre:["invoiced quantity","qty"]},
+  {key:"wc",        label:"Waste Channel",   exact:["waste channel","wastechannel","wc","cr69f_wastechanneltype"],                                      pre:["waste channel"]}
+];
+
+var GRID = [];       // current input as a 2D array of strings
+var HEADROW = -1;    // index of the header row within GRID
+var COLMAP = {};     // field key -> column index
+var META = {};       // label -> value, read from rows above the header
+
+function norm(v){
+  return String(v === null || v === undefined ? "" : v)
+    .toLowerCase().replace(/[().]/g," ").replace(/[_\s]+/g," ").trim();
+}
+
+// Alias lists are normalised the same way header cells are.
+(function(){
+  for (var i = 0; i < FIELDS.length; i++){
+    FIELDS[i].exact = FIELDS[i].exact.map(norm);
+    FIELDS[i].pre   = FIELDS[i].pre.map(norm);
+  }
+})();
+
+function headerScore(cells){
+  var n = 0;
+  for (var f = 0; f < FIELDS.length; f++){
+    for (var c = 0; c < cells.length; c++){
+      if (FIELDS[f].exact.indexOf(norm(cells[c])) > -1){ n++; break; }
+    }
+  }
+  return n;
+}
+
+// Pivot exports carry metadata rows above the real header, so look for it.
+function findHeaderRow(grid){
+  var best = -1, bestScore = 1;
+  var lim = Math.min(grid.length, 40);
+  for (var r = 0; r < lim; r++){
+    var sc = headerScore(grid[r]);
+    if (sc > bestScore){ bestScore = sc; best = r; }
+  }
+  return best;
+}
+
+function autoMap(cells){
+  var map = {}, taken = {};
+  // exact matches first, so "Item No" wins over "Item Manufacturer Part No"
+  for (var f = 0; f < FIELDS.length; f++){
+    for (var c = 0; c < cells.length; c++){
+      if (taken[c]) continue;
+      if (FIELDS[f].exact.indexOf(norm(cells[c])) > -1){ map[FIELDS[f].key] = c; taken[c] = 1; break; }
+    }
+  }
+  for (f = 0; f < FIELDS.length; f++){
+    if (map[FIELDS[f].key] !== undefined) continue;
+    for (c = 0; c < cells.length; c++){
+      if (taken[c]) continue;
+      var h = norm(cells[c]);
+      for (var k = 0; k < FIELDS[f].pre.length; k++){
+        if (h.indexOf(FIELDS[f].pre[k]) === 0){ map[FIELDS[f].key] = c; taken[c] = 1; break; }
+      }
+      if (map[FIELDS[f].key] !== undefined) break;
+    }
+  }
+  return map;
+}
+
+function readMeta(grid, headRow){
+  var m = {};
+  for (var r = 0; r < headRow; r++){
+    var k = String(grid[r][0] || "").trim(), v = String(grid[r][1] || "").trim();
+    if (k && v) m[k] = v;
+  }
+  return m;
+}
+
+// Country / period hints from the metadata block
+function applyMeta(){
+  var msg = [];
+  var country = null;
+  for (var k in META){
+    if (!META.hasOwnProperty(k)) continue;
+    var kk = k.toLowerCase();
+    if (kk.indexOf("country") > -1){
+      var v = META[k].toUpperCase().trim();
+      if (COUNTRIES[v]) country = v;
+    }
+    if (kk.indexOf("calendar") > -1 || kk.indexOf("year") > -1){
+      var mm = /(\d{4})\s*[-\/ ]?\s*(Q[1-4])?/i.exec(META[k]);
+      if (mm){
+        if ($("expYear")) $("expYear").value = mm[1];
+        if (mm[2] && $("expPeriod")) $("expPeriod").value = mm[2].toUpperCase();
+        msg.push("period " + mm[1] + (mm[2] ? " " + mm[2].toUpperCase() : ""));
+      }
+    }
+  }
+  if (country && country !== $("country").value){
+    $("country").value = country;
+    loadCountry(country);
+    msg.push("country set to " + COUNTRIES[country].name);
+  }
+  return msg;
+}
+
+function renderColMap(){
+  if (HEADROW < 0 || !GRID.length){ $("colMap").innerHTML = ""; return; }
+  var cells = GRID[HEADROW];
+  var h = ["<p><b>Column mapping</b> (header found on row " + (HEADROW + 1) + ")</p><p>"];
+  FIELDS.forEach(function(f){
+    h.push("<label>" + esc(f.label) + " <select data-field=\"" + f.key + "\" class=\"cmsel\">");
+    h.push('<option value="-1">— none —</option>');
+    for (var c = 0; c < cells.length; c++){
+      var nm = String(cells[c] || "").trim();
+      if (!nm) continue;
+      h.push('<option value="' + c + '"' + (COLMAP[f.key] === c ? " selected" : "") + ">" + esc(nm) + "</option>");
+    }
+    h.push("</select></label> &nbsp; ");
+  });
+  h.push("</p>");
+  $("colMap").innerHTML = h.join("");
+  var sels = document.querySelectorAll(".cmsel");
+  for (var i = 0; i < sels.length; i++){
+    sels[i].onchange = function(){
+      var v = parseInt(this.value, 10);
+      if (v < 0) delete COLMAP[this.getAttribute("data-field")];
+      else COLMAP[this.getAttribute("data-field")] = v;
+      calculate();
+    };
+  }
+}
+
+// Load a 2D grid (from paste or from a workbook) and set up mapping.
+function ingestGrid(grid, useHeader){
+  GRID = grid;
+  META = {};
+  if (useHeader){
+    HEADROW = findHeaderRow(grid);
+    if (HEADROW < 0){
+      // no recognisable header — treat the first row as one and map by position
+      HEADROW = 0;
+      COLMAP = {item:0, archetype:1, brand:2, weight:3, qty:4, wc:5};
+    } else {
+      COLMAP = autoMap(grid[HEADROW] || []);
+      META = readMeta(grid, HEADROW);
+    }
+  } else {
+    HEADROW = -1;
+    COLMAP = {item:0, archetype:1, brand:2, weight:3, qty:4, wc:5};
+  }
+  renderColMap();
+}
+
+function gridRows(){
+  var rows = [], start = HEADROW + 1;
+  for (var i = start; i < GRID.length; i++){
+    var c = GRID[i];
+    var blank = true;
+    for (var j = 0; j < c.length; j++){ if (String(c[j] || "").trim() !== ""){ blank = false; break; } }
+    if (blank) continue;
+    function get(k){
+      var idx = COLMAP[k];
+      return idx !== undefined && c[idx] !== undefined ? String(c[idx]).trim() : "";
+    }
+    rows.push({
+      line: i + 1,
+      item: get("item"),
+      archetype: get("archetype"),
+      brand: get("brand"),
+      weightRaw: get("weight"),
+      qtyRaw: get("qty"),
+      wcRaw: get("wc")
+    });
+  }
+  return rows;
+}
+
+function textToGrid(text){
+  var lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n");
+  while (lines.length && lines[lines.length-1].trim() === "") lines.pop();
+  if (!lines.length) return [];
+  var delim = detectDelim(lines[0]);
+  var grid = [];
+  for (var i = 0; i < lines.length; i++) grid.push(splitLine(lines[i], delim));
+  return grid;
+}
+
+/* ------------------------------------------------------------------
+   XLSX READER
+   A .xlsx is a ZIP of XML. The browser's own DecompressionStream
+   handles the inflate, so no library is needed.
+------------------------------------------------------------------ */
+function zipEntries(buf){
+  var u8 = new Uint8Array(buf), dv = new DataView(buf), eocd = -1;
+  for (var i = u8.length - 22; i >= 0 && i > u8.length - 66000; i--){
+    if (dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("Not a valid .xlsx file (no ZIP directory found).");
+  var count = dv.getUint16(eocd + 10, true), off = dv.getUint32(eocd + 16, true);
+  var out = {};
+  for (var n = 0; n < count; n++){
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    var method = dv.getUint16(off + 10, true);
+    var csize = dv.getUint32(off + 20, true);
+    var nameLen = dv.getUint16(off + 28, true);
+    var extraLen = dv.getUint16(off + 30, true);
+    var cmtLen = dv.getUint16(off + 32, true);
+    var lho = dv.getUint32(off + 42, true);
+    var name = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nameLen));
+    var lNameLen = dv.getUint16(lho + 26, true), lExtraLen = dv.getUint16(lho + 28, true);
+    var dataStart = lho + 30 + lNameLen + lExtraLen;
+    out[name] = {method: method, data: u8.subarray(dataStart, dataStart + csize)};
+    off += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+
+function inflateEntry(e){
+  if (!e) return Promise.resolve("");
+  if (e.method === 0) return Promise.resolve(new TextDecoder().decode(e.data));
+  if (typeof DecompressionStream === "undefined"){
+    return Promise.reject(new Error("This browser cannot unzip .xlsx (no DecompressionStream). Save the sheet as CSV and load that instead."));
+  }
+  var ds = new DecompressionStream("deflate-raw");
+  var stream = new Blob([e.data]).stream().pipeThrough(ds);
+  return new Response(stream).arrayBuffer().then(function(ab){
+    return new TextDecoder().decode(new Uint8Array(ab));
+  });
+}
+
+function colToIndex(ref){
+  var n = 0;
+  for (var i = 0; i < ref.length; i++){
+    var ch = ref.charCodeAt(i);
+    if (ch < 65 || ch > 90) break;
+    n = n * 26 + (ch - 64);
+  }
+  return n - 1;
+}
+
+function readXlsx(buf){
+  var files = zipEntries(buf);
+  var sheetPath = null;
+  return inflateEntry(files["xl/workbook.xml"]).then(function(wbXml){
+    return inflateEntry(files["xl/_rels/workbook.xml.rels"]).then(function(relXml){
+      var doc = new DOMParser().parseFromString(wbXml, "application/xml");
+      var sheets = doc.getElementsByTagName("sheet");
+      var rid = sheets.length ? (sheets[0].getAttribute("r:id") || sheets[0].getAttribute("id")) : null;
+      if (rid && relXml){
+        var rdoc = new DOMParser().parseFromString(relXml, "application/xml");
+        var rels = rdoc.getElementsByTagName("Relationship");
+        for (var i = 0; i < rels.length; i++){
+          if (rels[i].getAttribute("Id") === rid){
+            var t = rels[i].getAttribute("Target").replace(/^\/?xl\//, "").replace(/^\//, "");
+            sheetPath = "xl/" + t;
+          }
+        }
+      }
+      if (!sheetPath || !files[sheetPath]){
+        for (var k in files){ if (/^xl\/worksheets\/.*\.xml$/.test(k)){ sheetPath = k; break; } }
+      }
+      return inflateEntry(files["xl/sharedStrings.xml"]);
+    });
+  }).then(function(ssXml){
+    var shared = [];
+    if (ssXml){
+      var sdoc = new DOMParser().parseFromString(ssXml, "application/xml");
+      var sis = sdoc.getElementsByTagName("si");
+      for (var i = 0; i < sis.length; i++){
+        var ts = sis[i].getElementsByTagName("t"), txt = "";
+        for (var j = 0; j < ts.length; j++) txt += ts[j].textContent;
+        shared.push(txt);
+      }
+    }
+    return inflateEntry(files[sheetPath]).then(function(shXml){
+      var doc = new DOMParser().parseFromString(shXml, "application/xml");
+      var rows = doc.getElementsByTagName("row"), grid = [];
+      for (var r = 0; r < rows.length; r++){
+        var cells = rows[r].getElementsByTagName("c"), line = [];
+        for (var c = 0; c < cells.length; c++){
+          var cell = cells[c];
+          var idx = colToIndex(cell.getAttribute("r") || "");
+          if (idx < 0) idx = line.length;
+          var t = cell.getAttribute("t"), val = "";
+          if (t === "inlineStr"){
+            var its = cell.getElementsByTagName("t");
+            for (var m = 0; m < its.length; m++) val += its[m].textContent;
+          } else {
+            var vs = cell.getElementsByTagName("v");
+            val = vs.length ? vs[0].textContent : "";
+            if (t === "s") val = shared[parseInt(val, 10)] || "";
+          }
+          while (line.length < idx) line.push("");
+          line[idx] = val;
+        }
+        var rn = parseInt(rows[r].getAttribute("r"), 10);
+        if (rn){ while (grid.length < rn - 1) grid.push([]); }
+        grid.push(line);
+      }
+      return grid;
+    });
+  });
+}
+
+/* ------------------------------------------------------------------
+   CALCULATION
+------------------------------------------------------------------ */
+function calculate(fromGrid){
+  if (!fromGrid){
+    var txt = $("paste").value;
+    if (txt.trim() !== "") ingestGrid(textToGrid(txt), $("hasHeader").checked);
+  }
+  var parsed = {rows: gridRows()};
+  var useBrandWC = $("useBrandWC").checked;
+  var issues = {badArchetype:{}, badWeight:[], badQty:[], unknownBrand:{}, wcMismatch:[], badWC:[]};
+  var items = [], nSkipped = 0, rulesApplied = 0;
+  var wcCodes = CFG.wasteChannels.map(function(w){ return w.code; });
+
+  for (var r = 0; r < parsed.rows.length; r++){
+    var row = parsed.rows[r];
+    var arch = row.archetype;
+    var frac = CFG.archetypes[arch];
+    if (!frac){
+      if (arch !== ""){ issues.badArchetype[arch] = (issues.badArchetype[arch] || 0) + 1; }
+      nSkipped++;
+      continue;
+    }
+    var w = parseNum(row.weightRaw);
+    if (isNaN(w)){ issues.badWeight.push(row.line); nSkipped++; continue; }
+    var q = row.qtyRaw === "" ? 1 : parseNum(row.qtyRaw);
+    if (isNaN(q)){ issues.badQty.push(row.line); nSkipped++; continue; }
+
+    // waste channel
+    var brandWC = BRANDIDX[row.brand.toLowerCase()];
+    var wc, wcSource;
+    if (useBrandWC || row.wcRaw === ""){
+      if (brandWC !== undefined){ wc = brandWC; wcSource = "brand table"; }
+      else {
+        wc = CFG.defaultWasteChannel; wcSource = "default";
+        if (row.brand !== "") issues.unknownBrand[row.brand] = (issues.unknownBrand[row.brand] || 0) + 1;
+      }
+    } else {
+      wc = row.wcRaw; wcSource = "input";
+      if (brandWC !== undefined && brandWC !== wc) issues.wcMismatch.push(row.line + " (" + row.brand + ": input " + wc + ", brand table " + brandWC + ")");
+    }
+    if (wcCodes.indexOf(wc) === -1){ issues.badWC.push(row.line + " (" + wc + ")"); wc = CFG.defaultWasteChannel; wcSource = "default"; }
+
+    // per-PMAT kg
+    var base = w * q;
+    var kg = new Array(PMATS.length);
+    for (var p = 0; p < PMATS.length; p++){
+      var f = frac[PMATS[p].code];
+      kg[p] = f ? base * f : 0;
+    }
+
+    // brand-specific overrides
+    var overridden = false;
+    for (var ri = 0; ri < CFG.brandRules.length; ri++){
+      var rule = CFG.brandRules[ri];
+      if (rule.archetype === arch && rule.brand.toLowerCase() === row.brand.toLowerCase()){
+        var fi = PIDX[rule.from], ti = PIDX[rule.to];
+        if (fi !== undefined && ti !== undefined && kg[fi] !== 0){
+          kg[ti] += kg[fi];
+          kg[fi] = 0;
+          overridden = true;
+          rulesApplied++;
+        }
+      }
+    }
+
+    var sum = 0;
+    for (var s = 0; s < kg.length; s++) sum += kg[s];
+    items.push({
+      item: row.item, archetype: arch, brand: row.brand,
+      weight: w, qty: q, wc: wc, wcSource: wcSource,
+      kg: kg, total: base, checksum: base ? sum / base : 0,
+      overridden: overridden, line: row.line
+    });
+  }
+
+  // aggregations
+  var byPmat = {}, byParent = {}, byArch = {};
+  wcCodes.forEach(function(c){ byPmat[c] = new Array(PMATS.length); for (var i=0;i<PMATS.length;i++) byPmat[c][i]=0; });
+  var parents = [];
+  PMATS.forEach(function(p){ if (parents.indexOf(p.parent) === -1) parents.push(p.parent); });
+  parents.forEach(function(pa){
+    byParent[pa] = {};
+    wcCodes.forEach(function(c){ byParent[pa][c] = 0; });
+  });
+
+  var totalWeight = 0, totalQty = 0;
+  for (var i = 0; i < items.length; i++){
+    var it = items[i];
+    totalWeight += it.total;
+    totalQty += it.qty;
+    for (var p2 = 0; p2 < PMATS.length; p2++){
+      if (!it.kg[p2]) continue;
+      byPmat[it.wc][p2] += it.kg[p2];
+      byParent[PMATS[p2].parent][it.wc] += it.kg[p2];
+    }
+    if (!byArch[it.archetype]) byArch[it.archetype] = {items:0, qty:0, weight:0};
+    byArch[it.archetype].items++;
+    byArch[it.archetype].qty += it.qty;
+    byArch[it.archetype].weight += it.total;
+  }
+
+  RESULT = {
+    items: items, parents: parents, byPmat: byPmat, byParent: byParent, byArch: byArch,
+    wcCodes: wcCodes, totalWeight: totalWeight, totalQty: totalQty,
+    nParsed: parsed.rows.length, nSkipped: nSkipped, rulesApplied: rulesApplied, issues: issues
+  };
+
+  renderIssues();
+  renderSummary();
+  renderPmatTotals();
+  renderArchBreak();
+  renderDetail();
+  renderExport();
+}
+
+/* ------------------------------------------------------------------
+   RENDERING
+------------------------------------------------------------------ */
+function renderIssues(){
+  var R = RESULT, is = R.issues, h = [];
+  if (COLMAP.archetype === undefined || COLMAP.weight === undefined){
+    h.push('<p class="err"><b>Archetype and/or packaging weight column not identified.</b> ' +
+           "Pick them in the column mapping above.</p>");
+  }
+  h.push("<p><b>" + R.items.length + "</b> items calculated out of " + R.nParsed +
+         " input rows &nbsp;|&nbsp; total packaging weight <b>" + fmt(R.totalWeight, 3) + " kg</b>" +
+         " &nbsp;|&nbsp; total qty " + fmt(R.totalQty, 0) + "</p>");
+
+  function list(title, arr, cls){
+    if (!arr.length) return;
+    var shown = arr.slice(0, 25).join(", ") + (arr.length > 25 ? " … (+" + (arr.length - 25) + " more)" : "");
+    h.push('<p class="' + cls + '"><b>' + title + " (" + arr.length + "):</b> " + esc(shown) + "</p>");
+  }
+  var ba = Object.keys(is.badArchetype).map(function(k){ return k + " ×" + is.badArchetype[k]; });
+  list("Unknown archetype — rows skipped", ba, "err");
+  list("Unreadable packaging weight — rows skipped (line no.)", is.badWeight, "err");
+  list("Unreadable quantity — rows skipped (line no.)", is.badQty, "err");
+  list("Invalid waste channel — default applied (line no.)", is.badWC, "err");
+  var ub = Object.keys(is.unknownBrand).map(function(k){ return k + " ×" + is.unknownBrand[k]; });
+  list("Brand not in brand table — waste channel " + CFG.defaultWasteChannel + " applied", ub, "warn");
+  list("Input waste channel differs from brand table — input kept", is.wcMismatch, "warn");
+
+  if (R.rulesApplied) h.push('<p class="warn"><b>Brand overrides applied:</b> ' + R.rulesApplied + " row(s) — see Reference data.</p>");
+
+  var bad = 0;
+  for (var i = 0; i < R.items.length; i++) if (Math.abs(R.items[i].checksum - 1) > 1e-9) bad++;
+  h.push(bad
+    ? '<p class="err"><b>Checksum:</b> ' + bad + " item(s) do not allocate 100% of their packaging weight.</p>"
+    : '<p class="ok"><b>Checksum:</b> every item allocates 100% of its packaging weight.</p>');
+
+  $("issues").innerHTML = h.join("");
+}
+
+function renderSummary(){
+  var R = RESULT, h = ['<table><thead><tr><th class="t">Parent category</th>'];
+  CFG.wasteChannels.forEach(function(w){ h.push("<th>" + esc(w.label) + " (WC=" + w.code + ")</th>"); });
+  h.push("<th>Total</th><th>% of total</th></tr></thead><tbody>");
+  var grand = 0;
+  R.parents.forEach(function(pa){
+    R.wcCodes.forEach(function(c){ grand += R.byParent[pa][c]; });
+  });
+  R.parents.forEach(function(pa){
+    var tot = 0;
+    var cells = R.wcCodes.map(function(c){ tot += R.byParent[pa][c]; return "<td>" + fmt(R.byParent[pa][c], 3) + "</td>"; });
+    h.push('<tr><td class="t">' + esc(pa) + "</td>" + cells.join("") + "<td>" + fmt(tot, 3) + "</td><td>" +
+           fmt(grand ? tot / grand * 100 : 0, 2) + "%</td></tr>");
+  });
+  h.push('<tr><td class="t"><b>GRAND TOTAL</b></td>');
+  R.wcCodes.forEach(function(c){
+    var s = 0;
+    R.parents.forEach(function(pa){ s += R.byParent[pa][c]; });
+    h.push("<td><b>" + fmt(s, 3) + "</b></td>");
+  });
+  h.push("<td><b>" + fmt(grand, 3) + "</b></td><td><b>100.00%</b></td></tr>");
+  h.push("</tbody></table>");
+  h.push('<p class="small">Grand total should equal the total packaging weight above: ' + fmt(R.totalWeight, 3) + " kg" +
+         (Math.abs(grand - R.totalWeight) < 1e-6 ? ' <span class="ok">(matches)</span>' : ' <span class="err">(does not match)</span>') + "</p>");
+  $("summary").innerHTML = h.join("");
+}
+
+function renderPmatTotals(){
+  var R = RESULT, h = ['<table><thead><tr><th class="t">PMAT code</th><th class="t">Description</th><th class="t">Parent</th>'];
+  CFG.wasteChannels.forEach(function(w){ h.push("<th>WC=" + w.code + "</th>"); });
+  h.push("<th>Total</th></tr></thead><tbody>");
+  for (var p = 0; p < PMATS.length; p++){
+    var tot = 0;
+    var cells = R.wcCodes.map(function(c){ tot += R.byPmat[c][p]; return "<td>" + fmt(R.byPmat[c][p], 4) + "</td>"; });
+    h.push('<tr><td class="t">' + esc(PMATS[p].code) + '</td><td class="t">' + esc(PMATS[p].desc) +
+           '</td><td class="t">' + esc(PMATS[p].parent) + "</td>" + cells.join("") + "<td>" + fmt(tot, 4) + "</td></tr>");
+  }
+  h.push("</tbody></table>");
+  $("pmatTotals").innerHTML = h.join("");
+}
+
+function renderArchBreak(){
+  var R = RESULT;
+  var keys = Object.keys(CFG.archetypes).filter(function(a){ return R.byArch[a]; });
+  var h = ['<table><thead><tr><th class="t">Archetype</th><th>Items</th><th>Σ Qty</th><th>Σ Weight (kg)</th><th>Avg kg/item</th><th>% of weight</th></tr></thead><tbody>'];
+  keys.forEach(function(a){
+    var d = R.byArch[a];
+    h.push('<tr><td class="t">' + esc(a) + "</td><td>" + d.items + "</td><td>" + fmt(d.qty, 0) + "</td><td>" +
+           fmt(d.weight, 3) + "</td><td>" + fmt(d.items ? d.weight / d.items : 0, 4) + "</td><td>" +
+           fmt(R.totalWeight ? d.weight / R.totalWeight * 100 : 0, 2) + "%</td></tr>");
+  });
+  h.push("</tbody></table>");
+  $("archBreak").innerHTML = h.join("");
+}
+
+function visibleCols(){
+  var R = RESULT;
+  if (!$("hideZero").checked) return PMATS.map(function(_, i){ return i; });
+  var keep = [];
+  for (var p = 0; p < PMATS.length; p++){
+    var any = false;
+    for (var i = 0; i < R.items.length; i++){ if (R.items[i].kg[p]) { any = true; break; } }
+    if (any) keep.push(p);
+  }
+  return keep;
+}
+
+function renderDetail(){
+  if (!RESULT) return;
+  var R = RESULT, cap = parseInt($("rowCap").value, 10) || 200;
+  var cols = visibleCols();
+  var h = ['<table><thead><tr><th class="t">Item No.</th><th class="t">Archetype</th><th class="t">Brand</th><th>Weight</th><th>Qty</th><th>WC</th>'];
+  cols.forEach(function(p){ h.push("<th>" + esc(PMATS[p].code.replace(/^PMAT_/,"")) + "</th>"); });
+  h.push("<th>Total</th><th>Checksum</th></tr></thead><tbody>");
+  var n = Math.min(cap, R.items.length);
+  for (var i = 0; i < n; i++){
+    var it = R.items[i];
+    h.push("<tr" + (it.overridden ? ' class="ovr"' : "") + '><td class="t">' + esc(it.item) + '</td><td class="t">' +
+           esc(it.archetype) + '</td><td class="t">' + esc(it.brand) + "</td><td>" + fmt(it.weight, 4) + "</td><td>" +
+           fmt(it.qty, 0) + "</td><td>" + esc(it.wc) + "</td>");
+    cols.forEach(function(p){ h.push("<td>" + (it.kg[p] ? fmt(it.kg[p], 4) : "") + "</td>"); });
+    h.push("<td>" + fmt(it.total, 4) + "</td><td>" + fmt(it.checksum, 4) + "</td></tr>");
+  }
+  h.push("</tbody></table>");
+  $("detail").innerHTML = '<p class="small">Showing ' + n + " of " + R.items.length +
+    " items. Grey rows had a brand override applied. Export the CSV for the full set and all 25 PMAT columns.</p>" + h.join("");
+}
+
+/* ------------------------------------------------------------------
+   ARA EXPORT (Austria)
+------------------------------------------------------------------ */
+function applyExportDefaults(){
+  var cfg = CFG.exportProfile;
+  $("expBox").style.display = cfg ? "" : "none";
+  if (!cfg) return;
+  $("expScope").value = cfg.scope || "all";
+  $("expLine").value  = cfg.lineFormat || "code";
+  $("expDp").value    = (cfg.decimals === undefined ? 3 : cfg.decimals);
+}
+
+function expAggregate(){
+  var R = RESULT, cfg = CFG.exportProfile, scope = $("expScope").value;
+  var tot = {}, unmapped = {}, included = 0, excluded = 0;
+  cfg.categories.forEach(function(c){ tot[c.code] = 0; });
+  for (var i = 0; i < R.items.length; i++){
+    var it = R.items[i];
+    if (scope !== "all" && it.wc !== scope){ excluded += it.total; continue; }
+    included += it.total;
+    for (var p = 0; p < PMATS.length; p++){
+      if (!it.kg[p]) continue;
+      var m = cfg.map[PMATS[p].code];
+      var target = m ? m[it.wc] : null;
+      if (!target || tot[target] === undefined){
+        var key = PMATS[p].code + " / WC" + it.wc;
+        unmapped[key] = (unmapped[key] || 0) + it.kg[p];
+        continue;
+      }
+      tot[target] += it.kg[p];
+    }
+  }
+  return {tot: tot, unmapped: unmapped, included: included, excluded: excluded};
+}
+
+function expDp(){
+  var dp = parseInt($("expDp").value, 10);
+  return (isNaN(dp) || dp < 0) ? 0 : dp;
+}
+
+function expNum(v){
+  var s = Number(v).toFixed(expDp());
+  return $("expDec").value === "," ? s.replace(".", ",") : s;
+}
+
+function expLines(){
+  var agg = expAggregate(), cfg = CFG.exportProfile;
+  var d = $("expDelim").value, mode = $("expLine").value, lines = [];
+  if ($("expHead").checked){
+    var head = mode === "value" ? ["Weight_kg"]
+             : mode === "label" ? ["Category", "Weight_kg"]
+             : mode === "both"  ? ["Code", "Weight_kg", "Category"]
+             :                    ["Code", "Weight_kg"];
+    lines.push(head.join(d));
+  }
+  cfg.categories.forEach(function(c){
+    var v = agg.tot[c.code];
+    if (!v && !$("expZero").checked) return;
+    var row = mode === "value" ? [expNum(v)]
+            : mode === "label" ? [c.label, expNum(v)]
+            : mode === "both"  ? [c.code, expNum(v), c.label]
+            :                    [c.code, expNum(v)];
+    lines.push(row.join(d));
+  });
+  return {lines: lines, agg: agg};
+}
+
+function renderExport(){
+  var cfg = CFG.exportProfile;
+  if (!cfg){ $("expBox").style.display = "none"; return; }
+  $("expBox").style.display = "";
+  $("expLegend").textContent = "8. " + cfg.system + " upload file (" + CFG.name + ")";
+  $("expNote").innerHTML = "<p>" + esc(cfg.note) + "</p>";
+  if (!RESULT){ $("expTable").innerHTML = ""; $("expPreview").value = ""; return; }
+
+  var out = expLines(), agg = out.agg, dp = expDp(), hasRates = !!cfg.categories[0].rate;
+  var h = ['<table><thead><tr><th class="t">Code</th><th class="t">Category</th><th>Weight (kg)</th><th>Reported</th>'];
+  if (hasRates) h.push("<th>Rate " + cfg.rateYear + " (€/kg)</th><th>Fee (€)</th>");
+  h.push("</tr></thead><tbody>");
+  var sumKg = 0, sumRep = 0, sumFee = 0;
+  cfg.categories.forEach(function(c){
+    var v = agg.tot[c.code], rep = Number(v.toFixed(dp)), fee = v * (c.rate || 0);
+    sumKg += v; sumRep += rep; sumFee += fee;
+    h.push('<tr' + (v ? "" : ' class="small"') + '><td class="t">' + esc(c.code) + '</td><td class="t">' +
+           esc(c.label) + "</td><td>" + fmt(v, 3) + "</td><td>" + expNum(v) + "</td>");
+    if (hasRates) h.push("<td>" + fmt(c.rate, 3) + "</td><td>" + fmt(fee, 2) + "</td>");
+    h.push("</tr>");
+  });
+  h.push('<tfoot><tr><td class="t" colspan="2">TOTAL</td><td>' + fmt(sumKg, 3) + "</td><td>" + fmt(sumRep, dp) + "</td>");
+  if (hasRates) h.push("<td></td><td>" + fmt(sumFee, 2) + "</td>");
+  h.push("</tr></tfoot></tbody></table>");
+
+  if (hasRates){
+    h.push('<p class="small">Fee column is a cross-check against the scheme\'s own subtotal, excl. VAT, ' +
+           "using the " + cfg.rateYear + " tariff sheet. The scheme calculates the invoiced amount itself.</p>");
+  }
+  if (Math.abs(sumRep - sumKg) > 1e-9){
+    h.push('<p class="small">Rounding each category to ' + dp + " decimal(s) shifts the reported total by " +
+           fmt(sumRep - sumKg, 4) + " kg against the exact " + fmt(sumKg, 4) + " kg.</p>");
+  }
+  var scope = $("expScope").value;
+  if (scope !== "all"){
+    h.push('<p class="warn"><b>Scope:</b> only waste channel ' + esc(scope) + " is included — " +
+           fmt(agg.excluded, 3) + " kg of " + fmt(RESULT.totalWeight, 3) + " kg is excluded from this file.</p>");
+  } else if (Math.abs(sumKg - RESULT.totalWeight) > 1e-6){
+    h.push('<p class="err">Mapped weight ' + fmt(sumKg, 3) + " kg does not match total packaging weight " +
+           fmt(RESULT.totalWeight, 3) + " kg.</p>");
+  } else {
+    h.push('<p class="ok">Mapped weight matches total packaging weight (' + fmt(sumKg, 3) + " kg).</p>");
+  }
+  var un = Object.keys(agg.unmapped);
+  if (un.length){
+    h.push('<p class="err"><b>Unmapped PMAT / channel combinations:</b> ' +
+           esc(un.map(function(k){ return k + " (" + fmt(agg.unmapped[k], 3) + " kg)"; }).join(", ")) + "</p>");
+  }
+  $("expTable").innerHTML = h.join("");
+  $("expPreview").value = out.lines.join("\r\n");
+}
+
+function expDownload(){
+  if (!RESULT || !CFG.exportProfile) return;
+  var txt = $("expPreview").value;
+  var blob = new Blob([txt + "\r\n"], {type: "text/plain;charset=utf-8;"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = CFG.exportProfile.fileTag + "_" + $("expYear").value + "_" + $("expPeriod").value +
+               ($("expRef").value ? "_" + $("expRef").value.replace(/[^A-Za-z0-9_-]/g,"") : "") + ".txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+}
+
+function renderReference(){
+  var f = $("refFilter").value.toLowerCase();
+
+  var h = ['<table><thead><tr><th class="t">Archetype</th>'];
+  PMATS.forEach(function(p){ h.push('<th>' + esc(p.code.replace(/^PMAT_/,"")) + "</th>"); });
+  h.push("<th>Σ</th></tr></thead><tbody>");
+  Object.keys(CFG.archetypes).forEach(function(a){
+    var fr = CFG.archetypes[a];
+    var txt = a + " " + Object.keys(fr).filter(function(k){ return fr[k]; }).join(" ");
+    if (f && txt.toLowerCase().indexOf(f) === -1) return;
+    var s = 0;
+    h.push('<tr><td class="t"><b>' + esc(a) + "</b></td>");
+    PMATS.forEach(function(p){
+      var v = fr[p.code] || 0; s += v;
+      h.push("<td>" + (v ? fmt(v, 2) : "") + "</td>");
+    });
+    h.push("<td>" + fmt(s, 2) + "</td></tr>");
+  });
+  h.push("</tbody></table>");
+  $("refArch").innerHTML = h.join("");
+
+  var b = ['<table><thead><tr><th class="t">Brand</th><th>Waste channel</th></tr></thead><tbody>'];
+  var count = 0;
+  Object.keys(CFG.brands).forEach(function(k){
+    if (f && k.toLowerCase().indexOf(f) === -1) return;
+    if (count++ > 500) return;
+    b.push('<tr><td class="t">' + esc(k) + "</td><td>" + esc(CFG.brands[k]) + "</td></tr>");
+  });
+  b.push("</tbody></table>");
+  $("refBrand").innerHTML = '<p class="small">' + Object.keys(CFG.brands).length +
+    " brands in table (first 500 matches shown).</p>" + b.join("");
+
+  var r = ["<ul>"];
+  CFG.brandRules.forEach(function(x){
+    r.push("<li>Archetype <b>" + esc(x.archetype) + "</b> + brand <b>" + esc(x.brand) + "</b>: weight from " +
+           esc(x.from) + " is reported under " + esc(x.to) + ". <span class='small'>" + esc(x.note || "") + "</span></li>");
+  });
+  r.push("</ul>");
+  $("refRules").innerHTML = CFG.brandRules.length ? r.join("") : "<p class='small'>None for this market.</p>";
+}
+
+/* ------------------------------------------------------------------
+   EXPORTS
+------------------------------------------------------------------ */
+function exportSummary(){
+  if (!RESULT) return;
+  var R = RESULT;
+  var rows = [["Country", CFG.name], ["Items", R.items.length], ["Total packaging weight (kg)", fmt(R.totalWeight,4)], []];
+  var head = ["Parent category"];
+  CFG.wasteChannels.forEach(function(w){ head.push(w.label + " (WC=" + w.code + ")"); });
+  head.push("Total");
+  rows.push(head);
+  R.parents.forEach(function(pa){
+    var tot = 0, line = [pa];
+    R.wcCodes.forEach(function(c){ tot += R.byParent[pa][c]; line.push(fmt(R.byParent[pa][c],4)); });
+    line.push(fmt(tot,4));
+    rows.push(line);
+  });
+  download("ppwr_summary_" + CFG.name + ".csv", rows);
+}
+
+function exportPmat(){
+  if (!RESULT) return;
+  var R = RESULT;
+  var head = ["PMAT code","Description","Parent category"];
+  CFG.wasteChannels.forEach(function(w){ head.push("WC=" + w.code); });
+  head.push("Total");
+  var rows = [head];
+  for (var p = 0; p < PMATS.length; p++){
+    var tot = 0, line = [PMATS[p].code, PMATS[p].desc, PMATS[p].parent];
+    R.wcCodes.forEach(function(c){ tot += R.byPmat[c][p]; line.push(fmt(R.byPmat[c][p],6)); });
+    line.push(fmt(tot,6));
+    rows.push(line);
+  }
+  download("ppwr_pmat_totals_" + CFG.name + ".csv", rows);
+}
+
+function exportDetail(){
+  if (!RESULT) return;
+  var R = RESULT;
+  var head = ["Item No.","Archetype","Brand","Pkg Weight (kg)","Qty","Waste Channel","WC source"];
+  PMATS.forEach(function(p){ head.push(p.code); });
+  head.push("Total Weight","Checksum","Override applied");
+  var rows = [head];
+  for (var i = 0; i < R.items.length; i++){
+    var it = R.items[i];
+    var line = [it.item, it.archetype, it.brand, fmt(it.weight,6), it.qty, it.wc, it.wcSource];
+    for (var p = 0; p < PMATS.length; p++) line.push(fmt(it.kg[p],6));
+    line.push(fmt(it.total,6), fmt(it.checksum,6), it.overridden ? "yes" : "");
+    rows.push(line);
+  }
+  download("ppwr_detail_" + CFG.name + ".csv", rows);
+}
+
+/* ------------------------------------------------------------------
+   WIRING
+------------------------------------------------------------------ */
+(function init(){
+  var sel = $("country");
+  Object.keys(COUNTRIES).forEach(function(k){
+    var o = document.createElement("option");
+    o.value = k; o.textContent = COUNTRIES[k].name;
+    sel.appendChild(o);
+  });
+  sel.onchange = function(){ loadCountry(sel.value); };
+  loadCountry(sel.value);
+
+  $("calcBtn").onclick = calculate;
+  $("clearBtn").onclick = function(){
+    $("paste").value = "";
+    GRID = []; HEADROW = -1; COLMAP = {}; META = {};
+    $("colMap").innerHTML = ""; $("loadInfo").innerHTML = "";
+    RESULT = null;
+    ["summary","pmatTotals","archBreak","detail","expTable"].forEach(function(id){ $(id).innerHTML = ""; });
+    $("expPreview").value = "";
+    $("issues").innerHTML = "Not run yet.";
+  };
+  $("demoBtn").onclick = function(){ $("paste").value = DEMO; $("hasHeader").checked = true; calculate(); };
+  $("redrawDetail").onclick = renderDetail;
+  $("expSummary").onclick = exportSummary;
+  $("expPmat").onclick = exportPmat;
+  $("expDetail").onclick = exportDetail;
+  $("refFilter").oninput = renderReference;
+  $("expDownloadBtn").onclick = expDownload;
+  $("expRefresh").onclick = renderExport;
+  ["expDelim","expDec","expDp","expZero","expHead","expLine","expScope"].forEach(function(id){
+    $(id).onchange = renderExport;
+  });
+  $("file").onchange = function(e){
+    var f = e.target.files[0];
+    if (!f) return;
+    $("loadInfo").innerHTML = "Reading " + esc(f.name) + " …";
+    var rd = new FileReader();
+    if (/\.xlsx$/i.test(f.name)){
+      rd.onload = function(){
+        readXlsx(rd.result).then(function(grid){
+          $("paste").value = "";
+          ingestGrid(grid, true);
+          var notes = applyMeta();
+          $("loadInfo").innerHTML = "Loaded <b>" + esc(f.name) + "</b> — " + grid.length + " rows" +
+            (notes.length ? ", " + esc(notes.join(", ")) : "") + ".";
+          calculate(true);
+        }).catch(function(err){
+          $("loadInfo").innerHTML = '<span class="err">' + esc(err.message || String(err)) + "</span>";
+        });
+      };
+      rd.readAsArrayBuffer(f);
+    } else {
+      rd.onload = function(){
+        $("paste").value = rd.result;
+        ingestGrid(textToGrid(rd.result), $("hasHeader").checked);
+        var notes = applyMeta();
+        $("loadInfo").innerHTML = "Loaded <b>" + esc(f.name) + "</b>" + (notes.length ? " — " + esc(notes.join(", ")) : "");
+        calculate(true);
+      };
+      rd.readAsText(f);
+    }
+  };
+})();
+</script>
+</body>
+</html>
