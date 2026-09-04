@@ -20,6 +20,7 @@ textarea{width:100%;font-family:monospace;font-size:12px}
 .ok{color:#060}
 .ovr{background:#eee}
 .wrap{overflow-x:auto;max-height:520px;overflow-y:auto}
+.wrapcell{white-space:normal;max-width:520px}
 .small{font-size:12px;color:#555}
 button{padding:4px 10px;margin-right:4px}
 tfoot td,tfoot th{font-weight:bold;background:#f4f4f4}
@@ -133,6 +134,15 @@ by name — including the Dataverse names (<code>cr69f_archetype</code>, <code>c
 <label><input type="checkbox" id="expHead"> Write a header line</label>
 </p>
 <div id="expTable"></div>
+
+<h3>What feeds each form field</h3>
+<div class="wrap"><div id="expMapping"></div></div>
+<p><button id="expMapCsv" type="button">Export mapping CSV</button>
+<button id="expContribCsv" type="button">Export contributions CSV</button></p>
+
+<h3>Contribution detail (per PMAT and waste channel)</h3>
+<div class="wrap"><div id="expContrib"></div></div>
+
 <p><b>File preview</b></p>
 <textarea id="expPreview" rows="10" spellcheck="false" readonly></textarea>
 <p><button id="expDownloadBtn" type="button"><b>Download .txt</b></button>
@@ -261,6 +271,7 @@ COUNTRIES.AT = {
     scope: "all",
     lineFormat: "code",
     decimals: 3,
+    includeZero: false,
     rateYear: 2026,
     note: "Weights are aggregated to the 22 ARA tariff categories for the Import field on the ARA " +
           "data-report screen. Household weight goes to 1.x.x categories, commercial to 2.x.x, so " +
@@ -338,6 +349,7 @@ COUNTRIES.DE = {
     scope: "2",
     lineFormat: "label",
     decimals: 0,
+    includeZero: true,
     note: "Eight material categories in the order they appear on the Der Grüne Punkt form, " +
           "rounded to whole kg. Only system-participation packaging (the household channel) " +
           "belongs in a dual-system report, so the scope defaults to WC=2 — switch it above if " +
@@ -450,7 +462,7 @@ function loadCountry(code){
   }
   $("countryInfo").textContent = " — " + CFG.note;
   RESULT = null;
-  ["summary","pmatTotals","archBreak","detail","expTable"].forEach(function(id){ $(id).innerHTML = ""; });
+  ["summary","pmatTotals","archBreak","detail","expTable","expMapping","expContrib"].forEach(function(id){ $(id).innerHTML = ""; });
   $("expPreview").value = "";
   $("issues").innerHTML = "Not run yet.";
   applyExportDefaults();
@@ -1020,12 +1032,13 @@ function applyExportDefaults(){
   $("expScope").value = cfg.scope || "all";
   $("expLine").value  = cfg.lineFormat || "code";
   $("expDp").value    = (cfg.decimals === undefined ? 3 : cfg.decimals);
+  $("expZero").checked = !!cfg.includeZero;
 }
 
 function expAggregate(){
   var R = RESULT, cfg = CFG.exportProfile, scope = $("expScope").value;
-  var tot = {}, unmapped = {}, included = 0, excluded = 0;
-  cfg.categories.forEach(function(c){ tot[c.code] = 0; });
+  var tot = {}, unmapped = {}, included = 0, excluded = 0, detail = {};
+  cfg.categories.forEach(function(c){ tot[c.code] = 0; detail[c.code] = {}; });
   for (var i = 0; i < R.items.length; i++){
     var it = R.items[i];
     if (scope !== "all" && it.wc !== scope){ excluded += it.total; continue; }
@@ -1040,9 +1053,11 @@ function expAggregate(){
         continue;
       }
       tot[target] += it.kg[p];
+      var dk = PMATS[p].code + "|" + it.wc;
+      detail[target][dk] = (detail[target][dk] || 0) + it.kg[p];
     }
   }
-  return {tot: tot, unmapped: unmapped, included: included, excluded: excluded};
+  return {tot: tot, unmapped: unmapped, included: included, excluded: excluded, detail: detail};
 }
 
 function expDp(){
@@ -1083,7 +1098,11 @@ function renderExport(){
   $("expBox").style.display = "";
   $("expLegend").textContent = "8. " + cfg.system + " upload file (" + CFG.name + ")";
   $("expNote").innerHTML = "<p>" + esc(cfg.note) + "</p>";
-  if (!RESULT){ $("expTable").innerHTML = ""; $("expPreview").value = ""; return; }
+  if (!RESULT){
+    $("expTable").innerHTML = ""; $("expMapping").innerHTML = ""; $("expContrib").innerHTML = "";
+    $("expPreview").value = "";
+    return;
+  }
 
   var out = expLines(), agg = out.agg, dp = expDp(), hasRates = !!cfg.categories[0].rate;
   var h = ['<table><thead><tr><th class="t">Code</th><th class="t">Category</th><th>Weight (kg)</th><th>Reported</th>'];
@@ -1126,7 +1145,96 @@ function renderExport(){
            esc(un.map(function(k){ return k + " (" + fmt(agg.unmapped[k], 3) + " kg)"; }).join(", ")) + "</p>");
   }
   $("expTable").innerHTML = h.join("");
+  $("expMapping").innerHTML = renderMapping(agg);
+  $("expContrib").innerHTML = renderContribution(agg);
   $("expPreview").value = out.lines.join("\r\n");
+}
+
+// Which waste channels the current scope lets through
+function activeChannels(){
+  var scope = $("expScope").value;
+  return scope === "all" ? CFG.wasteChannels.map(function(w){ return w.code; }) : [scope];
+}
+
+// PMAT codes feeding a given export category, from the config, not the data
+function fedBy(catCode){
+  var cfg = CFG.exportProfile, chans = activeChannels(), out = [];
+  for (var p = 0; p < PMATS.length; p++){
+    var m = cfg.map[PMATS[p].code];
+    if (!m) continue;
+    for (var c = 0; c < chans.length; c++){
+      if (m[chans[c]] === catCode){ out.push(PMATS[p].code); break; }
+    }
+  }
+  return out;
+}
+
+function shortCode(c){ return c.replace(/^PMAT_/, ""); }
+
+function renderMapping(agg){
+  var cfg = CFG.exportProfile, dp = expDp();
+  var h = ['<table><thead><tr><th class="t">Form field / category</th><th class="t">Fed by</th>' +
+           '<th>Weight (kg)</th><th>Reported</th></tr></thead><tbody>'];
+  cfg.categories.forEach(function(c){
+    var f = fedBy(c.code), v = agg.tot[c.code];
+    h.push('<tr><td class="t">' + esc(c.label) + '</td><td class="t wrapcell">' +
+           (f.length ? esc(f.map(shortCode).join(", ")) : "—") + "</td><td>" +
+           fmt(v, 3) + "</td><td>" + expNum(v) + "</td></tr>");
+  });
+  h.push("</tbody></table>");
+  return h.join("");
+}
+
+function renderContribution(agg){
+  var cfg = CFG.exportProfile;
+  var h = ['<table><thead><tr><th class="t">Category</th><th class="t">PMAT code</th>' +
+           '<th class="t">Description</th><th>WC</th><th>Weight (kg)</th></tr></thead><tbody>'];
+  var any = false;
+  cfg.categories.forEach(function(c){
+    var d = agg.detail[c.code], keys = Object.keys(d).sort();
+    keys.forEach(function(k){
+      any = true;
+      var parts = k.split("|"), pm = null;
+      for (var i = 0; i < PMATS.length; i++) if (PMATS[i].code === parts[0]) pm = PMATS[i];
+      h.push('<tr><td class="t">' + esc(c.label) + '</td><td class="t">' + esc(parts[0]) +
+             '</td><td class="t">' + esc(pm ? pm.desc : "") + "</td><td>" + esc(parts[1]) +
+             "</td><td>" + fmt(d[k], 4) + "</td></tr>");
+    });
+  });
+  h.push("</tbody></table>");
+  return any ? h.join("") : '<p class="small">No weight allocated yet.</p>';
+}
+
+function exportMapping(){
+  if (!RESULT || !CFG.exportProfile) return;
+  var cfg = CFG.exportProfile, agg = expAggregate();
+  var rows = [["Country", CFG.name], ["Scheme", cfg.system],
+              ["Year", $("expYear").value], ["Period", $("expPeriod").value],
+              ["Waste channel scope", $("expScope").value],
+              ["Total packaging weight (kg)", fmt(RESULT.totalWeight, 4)], []];
+  rows.push(["Form field / category", "Category code", "Fed by (PMAT)", "Weight kg", "Reported value"]);
+  cfg.categories.forEach(function(c){
+    var f = fedBy(c.code);
+    rows.push([c.label, c.code, f.map(shortCode).join(", "), fmt(agg.tot[c.code], 4), expNum(agg.tot[c.code])]);
+  });
+  download(cfg.fileTag + "_mapping_" + CFG.name + ".csv", rows);
+}
+
+function exportContribution(){
+  if (!RESULT || !CFG.exportProfile) return;
+  var cfg = CFG.exportProfile, agg = expAggregate();
+  var rows = [["Form field / category", "Category code", "PMAT code", "PMAT description",
+               "Parent category", "Waste channel", "Weight kg"]];
+  cfg.categories.forEach(function(c){
+    var d = agg.detail[c.code];
+    Object.keys(d).sort().forEach(function(k){
+      var parts = k.split("|"), pm = null;
+      for (var i = 0; i < PMATS.length; i++) if (PMATS[i].code === parts[0]) pm = PMATS[i];
+      rows.push([c.label, c.code, parts[0], pm ? pm.desc : "", pm ? pm.parent : "",
+                 parts[1], fmt(d[k], 6)]);
+    });
+  });
+  download(cfg.fileTag + "_contributions_" + CFG.name + ".csv", rows);
 }
 
 function expDownload(){
@@ -1247,7 +1355,10 @@ function exportDetail(){
     o.value = k; o.textContent = COUNTRIES[k].name;
     sel.appendChild(o);
   });
-  sel.onchange = function(){ loadCountry(sel.value); };
+  sel.onchange = function(){
+    loadCountry(sel.value);
+    if (GRID.length) calculate(true);   // keep the loaded data, just re-run it
+  };
   loadCountry(sel.value);
 
   $("calcBtn").onclick = calculate;
@@ -1256,7 +1367,7 @@ function exportDetail(){
     GRID = []; HEADROW = -1; COLMAP = {}; META = {};
     $("colMap").innerHTML = ""; $("loadInfo").innerHTML = "";
     RESULT = null;
-    ["summary","pmatTotals","archBreak","detail","expTable"].forEach(function(id){ $(id).innerHTML = ""; });
+    ["summary","pmatTotals","archBreak","detail","expTable","expMapping","expContrib"].forEach(function(id){ $(id).innerHTML = ""; });
     $("expPreview").value = "";
     $("issues").innerHTML = "Not run yet.";
   };
@@ -1267,6 +1378,8 @@ function exportDetail(){
   $("expDetail").onclick = exportDetail;
   $("refFilter").oninput = renderReference;
   $("expDownloadBtn").onclick = expDownload;
+  $("expMapCsv").onclick = exportMapping;
+  $("expContribCsv").onclick = exportContribution;
   $("expRefresh").onclick = renderExport;
   ["expDelim","expDec","expDp","expZero","expHead","expLine","expScope"].forEach(function(id){
     $(id).onchange = renderExport;
