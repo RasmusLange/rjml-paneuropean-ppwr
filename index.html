@@ -132,6 +132,25 @@ by name — including the Dataverse names (<code>cr69f_archetype</code>, <code>c
 <option value="1">Commercial only (WC=1)</option>
 </select></label>
 </p>
+<p id="czControls" style="display:none">
+<label>Material origin
+<select id="czOrigin">
+<option value="imported" selected>Imported to Czechia</option>
+<option value="cz">Produced or bought in Czechia</option>
+</select></label> &nbsp;
+<label>Recycled content
+<select id="czContent">
+<option value="virgin" selected>All virgin</option>
+<option value="recycled">All recycled</option>
+</select></label> &nbsp;
+<label>Trade packaging level
+<select id="czLevel">
+<option value="auto" selected>Auto (archetype)</option>
+<option value="SALES">Sales</option>
+<option value="GROUP">Group</option>
+<option value="TRANSPORT">Transport</option>
+</select></label>
+</p>
 <p class="small">
 <label>Line format
 <select id="expLine">
@@ -379,6 +398,163 @@ COUNTRIES.DE = {
           "rounded to whole kg. Only system-participation packaging (the household channel) " +
           "belongs in a dual-system report, so the scope defaults to WC=2 — switch it above if " +
           "EET Deutschland reports on a different basis."
+  }
+};
+
+/* ---- Czech Republic (EKO-KOM) -------------------------------------
+   Transcribed from the EKO-KOM workbook "Statement about packaging
+   production", v2.76E. EKO-KOM is not a code list like CONAI or ARA: it
+   is a grid, and every figure is addressed by four coordinates —
+   material row x packaging form x virgin/recycled x produced-in-Czechia
+   /imported — on a sheet chosen by packaging level. The output is
+   therefore a cell reference, not a category code.
+
+   Only the sheets a one-way, paid, non-beverage filer needs are built:
+     J1-1A  trade packaging, sales
+     J1-1B  trade packaging, group and transport
+     J1-3   industrial (designated exclusively for another end user)
+   Beverage (J1-2x), reusable (Ox), pre-paid (J2), non-paid (J3),
+   exported (J4), littering (L) and the statistical sheets are out of
+   scope and are deliberately not generated.
+
+   The composite rows also require the supplementary K sheets
+   (J1-1K / J1-3K), which need a sales/group/transport split of each
+   composite that the PMAT data does not carry. The tool flags them.
+------------------------------------------------------------------ */
+var CZ_SHEET_OF = {SALES:"J1-1A", GROUP:"J1-1B", TRANSPORT:"J1-1B", INDUSTRIAL:"J1-3"};
+var CZ_LEVEL_LABEL = {SALES:"Sales", GROUP:"Group", TRANSPORT:"Transport", INDUSTRIAL:"Industrial, non-beverage"};
+
+/* Material rows. The plastics and metals block happens to line up across
+   all three sheets (J1-1A carries three PET rows and the others two, and
+   the offset cancels out at PET); the paper/wood block below it does not. */
+var CZ_ROWS = {
+  "J1-1A":{PET:12,PE:14,PP:16,PS:18,XPS:20,EPS:22,PVC:24,OTHER:26,BIO:28,PCOMP:30,
+           PAPER:44,PAPERBOARD:45,CORRUGATED:46,MOULDED:47,PAPCOMP:48,WOOD:49,WOODCOMP:50},
+  "J1-1B":{PET:12,PE:14,PP:16,PS:18,XPS:20,EPS:22,PVC:24,OTHER:26,BIO:28,PCOMP:30,
+           PAPER:42,PAPERBOARD:43,CORRUGATED:44,MOULDED:45,PAPCOMP:46,WOOD:47,WOODCOMP:48},
+  "J1-3" :{PET:12,PE:14,PP:16,PS:18,XPS:20,EPS:22,PVC:24,OTHER:26,BIO:28,PCOMP:30,
+           PAPER:45,PAPERBOARD:46,CORRUGATED:47,MOULDED:48,PAPCOMP:49,WOOD:50,WOODCOMP:51}
+};
+var CZ_MAT_LABEL = {
+  PET:"Plastics \u00b7 PET \u00b7 coloured opaque", PE:"Plastics \u00b7 PE \u00b7 colour",
+  PP:"Plastics \u00b7 PP \u00b7 colour", PS:"Plastics \u00b7 PS \u00b7 colour",
+  XPS:"Plastics \u00b7 XPS \u00b7 colour", EPS:"Plastics \u00b7 EPS \u00b7 colour",
+  PVC:"Plastics \u00b7 PVC \u00b7 colour", OTHER:"Plastics \u00b7 Others \u00b7 colour",
+  BIO:"Plastics \u00b7 Biodegradable \u00b7 colour", PCOMP:"Plastics \u00b7 Composite \u00b7 colour",
+  PAPER:"Paper \u00b7 Paper", PAPERBOARD:"Paper \u00b7 Paperboard",
+  CORRUGATED:"Paper \u00b7 Corrugated board", MOULDED:"Paper \u00b7 Moulded fibre",
+  PAPCOMP:"Paper \u00b7 Composite", WOOD:"Wood \u00b7 Wood and chipboard",
+  WOODCOMP:"Wood \u00b7 Composite with non-wood parts"
+};
+var CZ_FORM_LABEL = {SOFT:"Soft, flexible", RIGID:"Rigid, hollow rigid", FLAT:"\u2014"};
+
+/* Column letters per sheet|level|form, in the order
+   [virgin + produced in Czechia, virgin + imported, recycled + produced, recycled + imported].
+   The lower paper/wood block uses merged pairs, hence the gapped letters. */
+var CZ_COLS = {
+  "J1-1A|SALES|SOFT"      :["E","F","G","H"],
+  "J1-1A|SALES|RIGID"     :["I","J","K","L"],
+  "J1-1A|SALES|FLAT"      :["E","G","I","K"],
+  "J1-1B|GROUP|SOFT"      :["E","F","G","H"],
+  "J1-1B|GROUP|RIGID"     :["I","J","K","L"],
+  "J1-1B|GROUP|FLAT"      :["E","G","I","K"],
+  "J1-1B|TRANSPORT|SOFT"  :["M","N","O","P"],
+  "J1-1B|TRANSPORT|RIGID" :["Q","R","S","T"],
+  "J1-1B|TRANSPORT|FLAT"  :["M","O","Q","S"],
+  "J1-3|INDUSTRIAL|SOFT"  :["E","F","G","H"],
+  "J1-3|INDUSTRIAL|RIGID" :["I","J","K","L"],
+  "J1-3|INDUSTRIAL|FLAT"  :["E","G","I","K"]
+};
+
+/* PMAT -> EKO-KOM material row and form. The Danish green/yellow/red
+   grades are recyclability classes, not optical colour, and EKO-KOM asks
+   for optical colour. Clear-transparent attracts the lower fee, so every
+   plastic defaults to the coloured row; PET defaults to coloured opaque.
+   Override by editing this table once the packaging spec is known. */
+var CZ_PMAT = {
+  PMAT_PAP_20:{mat:"CORRUGATED",form:"FLAT"},
+  PMAT_PAP_21:{mat:"PAPERBOARD",form:"FLAT"},
+  PMAT_PAP_22:{mat:"PAPER",form:"FLAT"},
+  PMAT_C_PAP_80:{mat:"PAPCOMP",form:"FLAT",composite:true},
+  PMAT_WOOD:{mat:"WOOD",form:"FLAT"},
+  PMAT_PET_1_HARD_1:{mat:"PET",form:"RIGID"}, PMAT_PET_1_HARD_2:{mat:"PET",form:"RIGID"}, PMAT_PET_1_HARD_3:{mat:"PET",form:"RIGID"},
+  PMAT_HDPE_2_HARD_1:{mat:"PE",form:"RIGID"}, PMAT_HDPE_2_HARD_2:{mat:"PE",form:"RIGID"}, PMAT_HDPE_2_HARD_3:{mat:"PE",form:"RIGID"},
+  PMAT_PP_5_HARD_1:{mat:"PP",form:"RIGID"}, PMAT_PP_5_HARD_2:{mat:"PP",form:"RIGID"}, PMAT_PP_5_HARD_3:{mat:"PP",form:"RIGID"},
+  PMAT_PVC_3_HARD_1:{mat:"PVC",form:"RIGID"}, PMAT_PVC_3_HARD_3:{mat:"PVC",form:"RIGID"},
+  PMAT_LDPE_4_SOFT_1:{mat:"PE",form:"SOFT"}, PMAT_LDPE_4_SOFT_2:{mat:"PE",form:"SOFT"}, PMAT_LDPE_4_SOFT_3:{mat:"PE",form:"SOFT"},
+  PMAT_PVC_3_SOFT_1:{mat:"PVC",form:"SOFT"}, PMAT_PVC_3_SOFT_2:{mat:"PVC",form:"SOFT"}, PMAT_PVC_3_SOFT_3:{mat:"PVC",form:"SOFT"},
+  PMAT_PS_6_FOAM:{mat:"EPS",form:"RIGID"},
+  PMAT_OTHER_7_FOAM:{mat:"OTHER",form:"RIGID"},
+  PMAT_C_LDPE_90:{mat:"PCOMP",form:"SOFT",composite:true}
+};
+
+/* Archetypes whose weight is transport packaging rather than sales packaging.
+   Everything else defaults to sales; the export panel can override. */
+var CZ_TRANSPORT_ARCHETYPES = ["A13"];
+
+var CZ_CATEGORIES = (function(){
+  var out = [], seen = {};
+  ["SALES","GROUP","TRANSPORT","INDUSTRIAL"].forEach(function(level){
+    var sheet = CZ_SHEET_OF[level];
+    Object.keys(CZ_PMAT).forEach(function(pm){
+      var m = CZ_PMAT[pm], code = sheet + "|" + level + "|" + m.mat + "|" + m.form;
+      if (seen[code]) return;
+      seen[code] = 1;
+      out.push({code:code, sheet:sheet, level:level, mat:m.mat, form:m.form,
+                composite:!!m.composite, row:CZ_ROWS[sheet][m.mat],
+                cols:CZ_COLS[sheet + "|" + level + "|" + m.form],
+                label:sheet + " \u00b7 " + CZ_LEVEL_LABEL[level] + " \u00b7 " +
+                      CZ_MAT_LABEL[m.mat] + (m.form === "FLAT" ? "" : " \u00b7 " + CZ_FORM_LABEL[m.form])});
+    });
+  });
+  return out;
+})();
+var CZ_INDEX = {}; CZ_CATEGORIES.forEach(function(c){CZ_INDEX[c.code] = c;});
+
+function isCzech(){ return CFG === COUNTRIES.CZ; }
+function czOpt(id, fallback){ var el = $(id); return el && el.value ? el.value : fallback; }
+function czColIndex(){
+  return (czOpt("czContent","virgin") === "recycled" ? 2 : 0) +
+         (czOpt("czOrigin","imported") === "imported" ? 1 : 0);
+}
+function czCell(cat){ return cat.cols[czColIndex()] + cat.row; }
+function czLevelOf(item){
+  if (item.wc === "1") return "INDUSTRIAL";         // commercial channel = another end user
+  var ov = czOpt("czLevel","auto");
+  if (ov !== "auto") return ov;
+  return CZ_TRANSPORT_ARCHETYPES.indexOf(item.archetype) > -1 ? "TRANSPORT" : "SALES";
+}
+function czResolve(pmatCode, item){
+  var m = CZ_PMAT[pmatCode];
+  if (!m) return null;
+  var level = czLevelOf(item);
+  return CZ_SHEET_OF[level] + "|" + level + "|" + m.mat + "|" + m.form;
+}
+
+COUNTRIES.CZ = {
+  name: "Czech Republic",
+  note: "Reports to EKO-KOM. Waste channel 1 (Commercial) is treated as industrial packaging (sheet J1-3); " +
+        "waste channel 2 (Household) as trade packaging (J1-1A sales, J1-1B group and transport).",
+  wasteChannels: COUNTRIES.AT.wasteChannels,
+  defaultWasteChannel: "1",
+  pmats: DK.pmats,
+  archetypes: DK.archetypes,
+  brands: DK.brands,
+  brandRules: COUNTRIES.AT.brandRules,
+  transportArchetypes: CZ_TRANSPORT_ARCHETYPES,
+  exportProfile: {
+    system: "EKO-KOM statement",
+    fileTag: "EKOKOM",
+    categories: CZ_CATEGORIES,
+    map: {},
+    resolve: czResolve,
+    scope: "all",
+    lineFormat: "code",
+    decimals: 3,
+    includeZero: false,
+    unit: "t",
+    note: "Cell references address the EKO-KOM workbook \u201cStatement about packaging production\u201d v2.76E. " +
+          "Quantities are tonnes. Scope is one-way, paid, non-beverage packaging only."
   }
 };
 
@@ -1410,8 +1586,13 @@ function expAggregate(){
     included += it.total;
     for (var p = 0; p < PMATS.length; p++){
       if (!it.kg[p]) continue;
-      var m = cfg.map[PMATS[p].code];
-      var target = m ? m[it.wc] : null;
+      var target;
+      if (cfg.resolve){                      // grid schemes resolve per item, not per PMAT
+        target = cfg.resolve(PMATS[p].code, it);
+      } else {
+        var m = cfg.map[PMATS[p].code];
+        target = m ? m[it.wc] : null;
+      }
       if (!target || tot[target] === undefined){
         var key = PMATS[p].code + " / WC" + it.wc;
         unmapped[key] = (unmapped[key] || 0) + it.kg[p];
@@ -1437,6 +1618,7 @@ function expNum(v){
 
 function expLines(){
   if(isItaly()){var a=itAggregate();return {lines:itCanExport(a)?itLines(a):[],agg:a};}
+  if(isCzech()){var cz=expAggregate();return {lines:czLines(cz),agg:cz};}
   var agg = expAggregate(), cfg = CFG.exportProfile;
   var d = $("expDelim").value, mode = $("expLine").value, lines = [];
   if ($("expHead").checked){
@@ -1468,8 +1650,15 @@ function renderExport(){
   $("expLine").disabled=isItaly();
   $("expDownloadBtn").disabled=false;
   $("expCumCsv").style.display = isItaly() ? "" : "none";
+  $("czControls").style.display = isCzech() ? "" : "none";
   $("expDownloadBtn").textContent=isItaly()?"Download CONAI worksheet .txt":"Download .txt";
   if(isItaly()){renderItaly();return;}
+  if(isCzech()){
+    if(!RESULT){ $("expLegend").textContent="8. EKO-KOM statement — Czech Republic (tonnes)";
+      $("expNote").innerHTML="<p>"+esc(cfg.note)+"</p>";
+      $("expTable").innerHTML=""; $("expMapping").innerHTML=""; $("expContrib").innerHTML=""; $("expPreview").value=""; return; }
+    renderCzech(expAggregate()); return;
+  }
   $("expLegend").textContent = "8. " + cfg.system + " upload file (" + CFG.name + ")";
   $("expNote").innerHTML = "<p>" + esc(cfg.note) + "</p>";
   if (!RESULT){
@@ -1526,6 +1715,13 @@ function activeChannels(){
 function fedBy(catCode){
   if(isItaly()) return PMATS.filter(function(p){return itParts(p.code).some(function(a){return a.code===catCode&&itNum(a.share)>0;});}).map(function(p){return p.code;});
   var cfg = CFG.exportProfile, chans = activeChannels(), out = [];
+  if (cfg.resolve && isCzech()){
+    var cat = CZ_INDEX[catCode];
+    return cat ? PMATS.filter(function(p){
+      var m = CZ_PMAT[p.code];
+      return m && m.mat === cat.mat && m.form === cat.form;
+    }).map(function(p){ return p.code; }) : [];
+  }
   for (var p = 0; p < PMATS.length; p++){
     var m = cfg.map[PMATS[p].code];
     if (!m) continue;
@@ -1537,6 +1733,81 @@ function fedBy(catCode){
 }
 
 function shortCode(c){ return c.replace(/^PMAT_/, ""); }
+
+/* EKO-KOM output is a list of workbook cells to fill, grouped by sheet. */
+function czLines(agg){
+  var d = $("expDelim").value, lines = [], dp = expDp();
+  if ($("expHead").checked) lines.push(["Sheet","Cell","Row","Column","Tonnes","Packaging_level","Material_row","Form"].join(d));
+  czOrdered().forEach(function(c){
+    var t = agg.tot[c.code] / 1000;
+    if (!t && !$("expZero").checked) return;
+    var num = fmt(t, dp); if ($("expDec").value === ",") num = num.replace(".", ",");
+    lines.push([c.sheet, czCell(c), c.row, c.cols[czColIndex()], num,
+                CZ_LEVEL_LABEL[c.level], CZ_MAT_LABEL[c.mat], CZ_FORM_LABEL[c.form]]
+               .map(function(v){ return itCell(v, d); }).join(d));
+  });
+  return lines;
+}
+function czOrdered(){
+  var order = {"J1-1A":0,"J1-1B":1,"J1-3":2};
+  return CZ_CATEGORIES.slice().sort(function(a,b){
+    return (order[a.sheet]-order[b.sheet]) || (a.row-b.row) || a.cols[0].localeCompare(b.cols[0]);
+  });
+}
+function renderCzech(agg){
+  $("expLegend").textContent = "8. EKO-KOM statement \u2014 Czech Republic (tonnes)";
+  $("expNote").innerHTML = '<p>' + esc(CFG.exportProfile.note) + '</p>' +
+    '<p>Each line is a cell to fill in the EKO-KOM workbook. The column depends on the two selectors above: ' +
+    'material origin and recycled content are not carried in the PMAT data, so the whole tonnage goes to one column ' +
+    'until you split it. Waste channel 1 is reported as industrial (J1-3), waste channel 2 as trade packaging.</p>' +
+    '<p class="small">Plastics default to the coloured rows and PET to coloured opaque, because EKO-KOM asks for optical colour ' +
+    'and the Danish grades do not record it. Beverage, reusable, pre-paid, non-paid, exported and littering sheets are out of scope.</p>';
+  var h = ['<div class="wrap"><table><thead><tr><th class="t">Sheet</th><th>Cell</th><th class="t">Packaging level</th>' +
+           '<th class="t">Material row</th><th class="t">Form</th><th>Weight (kg)</th><th>Tonnes</th></tr></thead><tbody>'];
+  var sheet = "", sheetT = 0, grand = 0, composites = 0, rows = 0;
+  function sheetRow(){ if (sheet) h.push('<tr class="it-sub"><th class="t" colspan="5">Subtotal ' + esc(sheet) + '</th><td>' + fmt(sheetT*1000,3) + '</td><td>' + fmt(sheetT,6) + '</td></tr>'); }
+  czOrdered().forEach(function(c){
+    var kg = agg.tot[c.code] || 0, t = kg/1000;
+    if (!kg && !$("expZero").checked) return;
+    if (c.sheet !== sheet){ sheetRow(); sheetT = 0; sheet = c.sheet;
+      h.push('<tr class="it-material"><th class="t" colspan="7">' + esc(sheet) + '</th></tr>'); }
+    sheetT += t; grand += t; rows++;
+    if (c.composite && kg) composites += t;
+    h.push('<tr><td class="t">' + esc(c.sheet) + '</td><td><b>' + esc(czCell(c)) + '</b></td><td class="t">' +
+           esc(CZ_LEVEL_LABEL[c.level]) + '</td><td class="t wrapcell">' + esc(CZ_MAT_LABEL[c.mat]) +
+           '</td><td class="t">' + esc(CZ_FORM_LABEL[c.form]) + '</td><td>' + fmt(kg,4) + '</td><td>' + fmt(t,6) + '</td></tr>');
+  });
+  sheetRow();
+  h.push('<tr class="it-total"><th class="t" colspan="5">TOTAL</th><td>' + fmt(grand*1000,4) + '</td><td>' + fmt(grand,6) + '</td></tr>');
+  h.push('</tbody></table></div>');
+  if (!rows) h.push('<p class="small">No weight allocated yet.</p>');
+  h.push('<p>Included accepted weight: ' + fmt(agg.included,4) + ' kg \u00b7 Excluded by scope: ' + fmt(agg.excluded,4) + ' kg.</p>');
+  var dpNow = expDp(), rounded = 0;
+  czOrdered().forEach(function(c){ rounded += Number(((agg.tot[c.code]||0)/1000).toFixed(dpNow)); });
+  if (Math.abs(rounded - grand) > 1e-12){
+    h.push('<p class="small">Rounding each cell to ' + dpNow + ' decimal(s) of a tonne moves the reported total by ' +
+           fmt(rounded - grand, 6) + ' t against the exact ' + fmt(grand, 6) + ' t. Raise the decimals setting for small volumes.</p>');
+  }
+  Object.keys(agg.unmapped).forEach(function(k){
+    h.push('<p class="err">Unresolved: ' + esc(k) + ' \u2014 ' + fmt(agg.unmapped[k],4) + ' kg. No EKO-KOM row is mapped for this PMAT.</p>');
+  });
+  if (composites) h.push('<p class="warn"><b>Composite weight present: ' + fmt(composites,6) + ' t.</b> ' +
+    'EKO-KOM requires the composite rows to be repeated on the supplementary sheets J1-1K and J1-3K, ' +
+    'broken down into sales, group and transport. That split is not in the PMAT data, so those sheets are not generated.</p>');
+  h.push('<details><summary>Scope and classification notes</summary>' +
+    '<p>Sheets generated: J1-1A (trade, sales), J1-1B (trade, group and transport), J1-3 (industrial, non-beverage). ' +
+    'Not generated: J1-2A/B/K beverage, J2 pre-paid, J3 non-paid, J4 exported, L littering, all O reusable sheets, S1 and S2.</p>' +
+    '<p>Trade level comes from the archetype \u2014 ' + esc(CZ_TRANSPORT_ARCHETYPES.join(", ")) +
+    ' count as transport, everything else as sales. EKO-KOM distinguishes sales, group and transport packaging as a property of the packaging, ' +
+    'not of its material, so this is a working default rather than evidence. Override it above.</p>' +
+    '<p>The EKO-KOM grid also carries XPS, PS, biodegradable, metal, glass, moulded fibre, textile and beverage-carton rows. ' +
+    'No PMAT reaches them, so no cell is generated for those rows; packaging containing them cannot be declared through this tool.</p></details>');
+  $("expTable").innerHTML = h.join("");
+  $("expMapping").innerHTML = renderMapping(agg);
+  $("expContrib").innerHTML = renderContribution(agg);
+  $("expPreview").value = czLines(agg).join("\r\n");
+  $("expDownloadBtn").disabled = false;
+}
 
 function renderMapping(agg){
   if(isItaly()){
